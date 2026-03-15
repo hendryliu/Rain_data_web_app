@@ -9,10 +9,13 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  #map { height: 50vh; width: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+
+  /* Left column: map + chart */
+  #left-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #map { flex: 1; min-height: 0; }
   #chart-container {
-    height: 50vh; width: 100%; padding: 10px;
+    flex: 1; padding: 10px;
     display: flex; flex-direction: column;
   }
   #controls {
@@ -27,45 +30,171 @@
     flex: 1; display: flex; align-items: center; justify-content: center;
     color: #999; font-size: 1.2em;
   }
+
+  /* Right column: chat panel */
+  #chat-panel {
+    width: 360px; border-left: 1px solid #ddd;
+    display: flex; flex-direction: column; background: #fafafa;
+    transition: width 0.2s;
+  }
+  #chat-panel.collapsed { width: 0; overflow: hidden; border: none; }
+
+  #chat-toggle {
+    position: fixed; right: 8px; top: 8px; z-index: 1000;
+    background: #1976d2; color: white; border: none;
+    border-radius: 6px; padding: 6px 12px; cursor: pointer;
+    font-size: 0.85em;
+  }
+  #chat-toggle:hover { background: #1565c0; }
+
+  #chat-header {
+    padding: 12px 14px; font-weight: 600; font-size: 1.05em;
+    border-bottom: 1px solid #e0e0e0; background: white;
+  }
+
+  /* Quick query buttons */
+  #quick-queries {
+    padding: 10px; display: flex; flex-wrap: wrap; gap: 6px;
+    border-bottom: 1px solid #e0e0e0; background: white;
+  }
+  .qq-btn {
+    padding: 5px 10px; font-size: 0.8em; border: 1px solid #ccc;
+    border-radius: 14px; background: white; cursor: pointer;
+    color: #333; transition: all 0.15s;
+  }
+  .qq-btn:hover:not(:disabled) { background: #e3f2fd; border-color: #1976d2; color: #1976d2; }
+  .qq-btn:disabled { opacity: 0.4; cursor: default; }
+  .qq-btn.special { border-color: #7b1fa2; color: #7b1fa2; }
+  .qq-btn.special:hover:not(:disabled) { background: #f3e5f5; }
+
+  /* Messages area */
+  #messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .msg { max-width: 95%; padding: 8px 12px; border-radius: 12px; font-size: 0.9em; line-height: 1.4; }
+  .msg.user { align-self: flex-end; background: #1976d2; color: white; border-bottom-right-radius: 4px; }
+  .msg.assistant { align-self: flex-start; background: white; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
+  .msg .msg-title { font-weight: 600; margin-bottom: 4px; }
+  .msg table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 0.85em; }
+  .msg th, .msg td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; }
+  .msg th { background: #f5f5f5; font-weight: 600; }
+  .msg tr:nth-child(even) td { background: #fafafa; }
+  .msg .inline-chart { width: 100%; height: 200px; margin-top: 6px; }
+  .msg .msg-text { margin-top: 6px; color: #555; font-size: 0.85em; }
+  .msg.loading-msg { color: #888; font-style: italic; }
+
+  /* Compare picker */
+  #compare-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 2000;
+    align-items: center; justify-content: center;
+  }
+  #compare-overlay.active { display: flex; }
+  #compare-dialog {
+    background: white; border-radius: 10px; padding: 20px; width: 320px;
+    max-height: 60vh; display: flex; flex-direction: column;
+  }
+  #compare-dialog h3 { margin-bottom: 10px; }
+  #compare-search { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 8px; }
+  #compare-list { flex: 1; overflow-y: auto; list-style: none; }
+  #compare-list li { padding: 8px; cursor: pointer; border-radius: 4px; }
+  #compare-list li:hover { background: #e3f2fd; }
+  #compare-cancel { margin-top: 10px; padding: 8px; border: 1px solid #ccc; border-radius: 6px; background: white; cursor: pointer; }
+
+  /* Chat input */
+  #chat-input-area {
+    padding: 10px; border-top: 1px solid #e0e0e0; background: white;
+    display: flex; gap: 8px;
+  }
+  #chat-input {
+    flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 18px;
+    font-size: 0.9em; outline: none;
+  }
+  #chat-input:focus { border-color: #1976d2; }
+  #chat-input:disabled { background: #f0f0f0; }
+  #chat-send {
+    background: #1976d2; color: white; border: none; border-radius: 50%;
+    width: 36px; height: 36px; cursor: pointer; font-size: 1.1em;
+  }
+  #chat-send:hover { background: #1565c0; }
+  #chat-send:disabled { opacity: 0.4; cursor: default; }
+  #llm-notice { display: none; font-size: 0.75em; color: #999; padding: 0 10px 6px; }
+
+  @media (max-width: 768px) {
+    body { flex-direction: column; }
+    #chat-panel { width: 100%; height: 45vh; border-left: none; border-top: 1px solid #ddd; }
+    #chat-panel.collapsed { height: 0; }
+    #left-col { height: 55vh; }
+  }
 </style>
 </head>
 <body>
 
-<div id="map"></div>
+<button id="chat-toggle" onclick="toggleChat()">Chat</button>
 
-<div id="chart-container">
-  <div id="controls">
-    <span id="station-label"></span>
-    <select id="year-select" style="display:none">
-      <option value="">All years</option>
-      <option value="2016">2016</option>
-      <option value="2017">2017</option>
-      <option value="2018">2018</option>
-      <option value="2019">2019</option>
-      <option value="2020">2020</option>
-      <option value="2021">2021</option>
-      <option value="2022">2022</option>
-      <option value="2023">2023</option>
-      <option value="2024">2024</option>
-    </select>
-    <span id="loading">Loading...</span>
+<div id="left-col">
+  <div id="map"></div>
+  <div id="chart-container">
+    <div id="controls">
+      <span id="station-label"></span>
+      <select id="year-select" style="display:none">
+        <option value="">All years</option>
+        <option value="2016">2016</option>
+        <option value="2017">2017</option>
+        <option value="2018">2018</option>
+        <option value="2019">2019</option>
+        <option value="2020">2020</option>
+        <option value="2021">2021</option>
+        <option value="2022">2022</option>
+        <option value="2023">2023</option>
+        <option value="2024">2024</option>
+      </select>
+      <span id="loading">Loading...</span>
+    </div>
+    <div id="placeholder">Click a station on the map to view rainfall data</div>
+    <div id="chart"></div>
   </div>
-  <div id="placeholder">Click a station on the map to view rainfall data</div>
-  <div id="chart"></div>
+</div>
+
+<div id="chat-panel">
+  <div id="chat-header">Rainfall Chat</div>
+  <div id="quick-queries"></div>
+  <div id="messages">
+    <div class="msg assistant">Select a station on the map, then use the buttons above or type a question.</div>
+  </div>
+  <div id="llm-notice">LLM not available — only quick queries are enabled.</div>
+  <div id="chat-input-area">
+    <input id="chat-input" type="text" placeholder="Ask about rainfall data..." disabled>
+    <button id="chat-send" disabled onclick="sendFreeform()">&#8593;</button>
+  </div>
+</div>
+
+<!-- Compare station picker -->
+<div id="compare-overlay">
+  <div id="compare-dialog">
+    <h3>Select second station</h3>
+    <input id="compare-search" type="text" placeholder="Search station..." oninput="filterCompareList()">
+    <ul id="compare-list"></ul>
+    <button id="compare-cancel" onclick="closeCompare()">Cancel</button>
+  </div>
 </div>
 
 <script>
+// --- Map setup ---
 const map = L.map('map').setView([1.35, 103.82], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 18
+  attribution: '&copy; OpenStreetMap contributors', maxZoom: 18
 }).addTo(map);
 
 let selectedStation = null;
+let allStations = [];
+let llmAvailable = false;
 
+// --- Load stations ---
 fetch('/api/stations')
   .then(r => r.json())
   .then(stations => {
+    allStations = stations;
     stations.forEach(s => {
       const marker = L.circleMarker([s.lat, s.lng], {
         radius: 6, color: '#1976d2', fillColor: '#42a5f5',
@@ -81,6 +210,7 @@ function selectStation(station) {
   document.getElementById('station-label').textContent = station.name;
   document.getElementById('year-select').style.display = '';
   loadRainfall();
+  updateQQButtons();
 }
 
 document.getElementById('year-select').addEventListener('change', () => {
@@ -90,36 +220,258 @@ document.getElementById('year-select').addEventListener('change', () => {
 function loadRainfall() {
   const year = document.getElementById('year-select').value;
   const url = `/api/rainfall/${selectedStation.id}` + (year ? `?year=${year}` : '');
-
   document.getElementById('loading').style.display = '';
   document.getElementById('placeholder').style.display = 'none';
   document.getElementById('chart').style.display = '';
 
-  fetch(url)
-    .then(r => r.json())
-    .then(data => {
-      document.getElementById('loading').style.display = 'none';
-      const timestamps = data.map(d => d.timestamp);
-      const values = data.map(d => d.value);
+  fetch(url).then(r => r.json()).then(data => {
+    document.getElementById('loading').style.display = 'none';
+    Plotly.newPlot('chart', [{
+      x: data.map(d => d.timestamp), y: data.map(d => d.value),
+      type: 'scatter', mode: 'lines',
+      line: { color: '#1976d2', width: 1 }, name: 'Rainfall'
+    }], {
+      title: `Rainfall \u2014 ${selectedStation.name}`,
+      xaxis: { title: 'Time' }, yaxis: { title: 'Rainfall (mm)' },
+      margin: { t: 40, b: 50, l: 60, r: 20 }
+    }, { responsive: true });
+  }).catch(() => {
+    document.getElementById('loading').style.display = 'none';
+  });
+}
 
-      Plotly.newPlot('chart', [{
-        x: timestamps, y: values, type: 'scatter', mode: 'lines',
-        line: { color: '#1976d2', width: 1 },
-        name: 'Rainfall'
-      }], {
-        title: `Rainfall — ${selectedStation.name}`,
-        xaxis: { title: 'Time' },
-        yaxis: { title: 'Rainfall (mm)' },
-        margin: { t: 40, b: 50, l: 60, r: 20 },
-        height: undefined
-      }, {
-        responsive: true
-      });
-    })
-    .catch(() => {
-      document.getElementById('loading').style.display = 'none';
+// --- Chat panel toggle ---
+function toggleChat() {
+  const panel = document.getElementById('chat-panel');
+  panel.classList.toggle('collapsed');
+  document.getElementById('chat-toggle').textContent = panel.classList.contains('collapsed') ? 'Chat' : 'Close';
+  setTimeout(() => map.invalidateSize(), 250);
+}
+
+// --- Quick query buttons ---
+const QUICK_QUERIES = [
+  { id: 'station_summary', label: 'Station Stats', needsStation: true },
+  { id: 'monthly_totals', label: 'Monthly Totals', needsStation: true, needsYear: true },
+  { id: 'yearly_totals', label: 'Yearly Totals', needsStation: true },
+  { id: 'top_rainy_days', label: 'Top Rainy Days', needsStation: true },
+  { id: 'longest_dry_spell', label: 'Dry Spell', needsStation: true },
+  { id: 'hourly_pattern', label: 'Hourly Pattern', needsStation: true },
+  { id: 'rainiest_week', label: 'Rainiest Week', needsStation: true },
+  { id: 'compare_stations', label: 'Compare Stations', needsStation: true, special: true },
+];
+
+function buildQQButtons() {
+  const container = document.getElementById('quick-queries');
+  QUICK_QUERIES.forEach(q => {
+    const btn = document.createElement('button');
+    btn.className = 'qq-btn' + (q.special ? ' special' : '');
+    btn.textContent = q.label;
+    btn.disabled = true;
+    btn.dataset.queryId = q.id;
+    btn.onclick = () => handleQQ(q);
+    container.appendChild(btn);
+  });
+}
+
+function updateQQButtons() {
+  document.querySelectorAll('.qq-btn').forEach(btn => {
+    const q = QUICK_QUERIES.find(qq => qq.id === btn.dataset.queryId);
+    btn.disabled = q.needsStation && !selectedStation;
+  });
+}
+
+function handleQQ(q) {
+  if (q.special && q.id === 'compare_stations') {
+    openCompare();
+    return;
+  }
+  const params = { station_id: selectedStation.id };
+  const year = document.getElementById('year-select').value;
+  if (q.needsYear && !year) {
+    addMessage('user', q.label);
+    addMessage('assistant', 'Please select a year first.');
+    return;
+  }
+  if (year) params.year = parseInt(year);
+  addMessage('user', q.label + (year ? ` (${year})` : '') + ` \u2014 ${selectedStation.name}`);
+  sendQuery(q.id, params);
+}
+
+buildQQButtons();
+
+// --- Compare station picker ---
+function openCompare() {
+  const overlay = document.getElementById('compare-overlay');
+  overlay.classList.add('active');
+  document.getElementById('compare-search').value = '';
+  filterCompareList();
+}
+
+function closeCompare() {
+  document.getElementById('compare-overlay').classList.remove('active');
+}
+
+function filterCompareList() {
+  const search = document.getElementById('compare-search').value.toLowerCase();
+  const list = document.getElementById('compare-list');
+  list.innerHTML = '';
+  allStations
+    .filter(s => s.id !== selectedStation.id && s.name.toLowerCase().includes(search))
+    .forEach(s => {
+      const li = document.createElement('li');
+      li.textContent = `${s.name} (${s.id})`;
+      li.onclick = () => {
+        closeCompare();
+        const year = document.getElementById('year-select').value;
+        const params = { station_id_1: selectedStation.id, station_id_2: s.id };
+        if (year) params.year = parseInt(year);
+        addMessage('user', `Compare ${selectedStation.name} vs ${s.name}` + (year ? ` (${year})` : ''));
+        sendQuery('compare_stations', params);
+      };
+      list.appendChild(li);
     });
 }
+
+// --- Chat messaging ---
+function addMessage(role, content) {
+  const messages = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.textContent = content;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+  return div;
+}
+
+function renderResult(result) {
+  const messages = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+
+  let html = `<div class="msg-title">${result.title || ''}</div>`;
+
+  if (result.type === 'table') {
+    html += '<table><thead><tr>';
+    result.columns.forEach(c => html += `<th>${c}</th>`);
+    html += '</tr></thead><tbody>';
+    result.rows.forEach(row => {
+      html += '<tr>';
+      row.forEach(cell => html += `<td>${cell}</td>`);
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+
+  if (result.type === 'chart') {
+    const chartId = 'chat-chart-' + Date.now();
+    html += `<div class="inline-chart" id="${chartId}"></div>`;
+  }
+
+  if (result.text) {
+    html += `<div class="msg-text">${result.text}</div>`;
+  }
+
+  div.innerHTML = html;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+
+  // Render Plotly chart if needed
+  if (result.type === 'chart') {
+    const chartEl = div.querySelector('.inline-chart');
+    if (result.chart_type === 'grouped_bar') {
+      const traces = result.data.series.map(s => ({
+        x: result.data.labels, y: s.values,
+        type: 'bar', name: s.name
+      }));
+      Plotly.newPlot(chartEl, traces, {
+        barmode: 'group', margin: { t: 10, b: 30, l: 40, r: 10 },
+        legend: { orientation: 'h', y: -0.2 }
+      }, { responsive: true, displayModeBar: false });
+    } else {
+      Plotly.newPlot(chartEl, [{
+        x: result.data.labels, y: result.data.values,
+        type: 'bar', marker: { color: '#42a5f5' }
+      }], {
+        margin: { t: 10, b: 30, l: 40, r: 10 }
+      }, { responsive: true, displayModeBar: false });
+    }
+  }
+}
+
+function sendQuery(queryId, params) {
+  const loadingDiv = addMessage('assistant', 'Analyzing...');
+  loadingDiv.classList.add('loading-msg');
+
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query_id: queryId, params })
+  })
+    .then(r => r.json())
+    .then(data => {
+      loadingDiv.remove();
+      if (data.result) {
+        renderResult(data.result);
+      } else {
+        addMessage('assistant', data.content || 'No results found.');
+      }
+    })
+    .catch(() => {
+      loadingDiv.remove();
+      addMessage('assistant', 'Something went wrong. Please try again.');
+    });
+}
+
+// --- Free-form input ---
+function sendFreeform() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  addMessage('user', msg);
+
+  const loadingDiv = addMessage('assistant', 'Thinking...');
+  loadingDiv.classList.add('loading-msg');
+
+  const context = {};
+  if (selectedStation) context.selected_station = selectedStation.id;
+
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: msg, context })
+  })
+    .then(r => r.json())
+    .then(data => {
+      loadingDiv.remove();
+      if (data.result) {
+        renderResult(data.result);
+      } else {
+        addMessage('assistant', data.content || 'I could not process that query.');
+      }
+    })
+    .catch(() => {
+      loadingDiv.remove();
+      addMessage('assistant', 'Something went wrong. Please try again.');
+    });
+}
+
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFreeform(); }
+});
+
+// --- LLM health check ---
+fetch('/api/chat/health').then(r => r.json()).then(data => {
+  llmAvailable = data.llm_available;
+  if (llmAvailable) {
+    document.getElementById('chat-input').disabled = false;
+    document.getElementById('chat-send').disabled = false;
+  } else {
+    document.getElementById('llm-notice').style.display = 'block';
+  }
+}).catch(() => {
+  document.getElementById('llm-notice').style.display = 'block';
+});
 </script>
 </body>
 </html>

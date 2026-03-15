@@ -3,3 +3,23 @@ services:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      - LLAMA_CPP_URL=http://llama:8080
+    depends_on:
+      llama:
+        condition: service_started
+        required: false
+
+  llama:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    profiles: ["llm"]
+    volumes:
+      - ./models:/models
+    command: >
+      --model /models/model.gguf
+      --host 0.0.0.0
+      --port 8080
+      --ctx-size 4096
+      --n-predict 512
+    ports:
+      - "8080:8080"
