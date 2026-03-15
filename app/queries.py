@@ -297,7 +297,7 @@ def execute_query(query_id: str, params: dict) -> dict:
     # Type coercion
     coerced = {}
     for name, spec in schema.items():
-        if name in params:
+        if name in params and params[name] is not None:
             val = params[name]
             if spec["type"] == "int":
                 coerced[name] = int(val)

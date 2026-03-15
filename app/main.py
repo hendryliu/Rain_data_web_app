@@ -70,21 +70,21 @@ async def chat(req: ChatRequest):
 
     # Free-form message path via LLM
     if req.message:
-        llm_result = await query_llm(req.message, req.context)
-
-        if llm_result["query"] is None:
-            return {
-                "role": "assistant",
-                "content": llm_result["explanation"],
-                "result": None,
-            }
-
         try:
+            llm_result = await query_llm(req.message, req.context)
+
+            if llm_result["query"] is None:
+                return {
+                    "role": "assistant",
+                    "content": llm_result["explanation"],
+                    "result": None,
+                }
+
             result = execute_query(llm_result["query"], llm_result["params"])
             content = llm_result.get("explanation", result.get("text", ""))
             return {"role": "assistant", "content": content, "result": result}
-        except ValueError as e:
-            return {"role": "assistant", "content": str(e), "result": None}
+        except Exception as e:
+            return {"role": "assistant", "content": f"Error: {e}", "result": None}
 
     raise HTTPException(400, "Provide either query_id or message")
 
