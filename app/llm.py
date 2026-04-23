@@ -17,6 +17,21 @@ def _build_station_list() -> str:
     return "\n".join(f"{sid}={name}" for sid, name in sorted(stations.items()))
 
 
+def _build_query_catalog() -> str:
+    """Render the query list for the system prompt from QUERY_REGISTRY.
+
+    Single source of truth: adding a query to the registry updates the prompt
+    automatically, with no risk of the two drifting apart.
+    """
+    lines = []
+    for qid, entry in QUERY_REGISTRY.items():
+        required = [n for n, s in entry["params"].items() if s["required"]]
+        optional = [f"{n}?" for n, s in entry["params"].items() if not s["required"]]
+        sig = ", ".join(required + optional)
+        lines.append(f"- {qid}({sig}) — {entry['description']}")
+    return "\n".join(lines)
+
+
 def _build_system_prompt(context: dict | None = None) -> str:
     # Only include full station list if user is asking about a station by name
     # without context. If context has a selected station, we can keep it short.
@@ -30,14 +45,7 @@ def _build_system_prompt(context: dict | None = None) -> str:
 {station_info}
 
 Queries:
-- monthly_totals(station_id, year) — monthly sums
-- yearly_totals(station_id) — yearly sums
-- top_rainy_days(station_id, year?, n?) — top N rainiest days
-- compare_stations(station_id_1, station_id_2, year?) — compare two stations
-- longest_dry_spell(station_id, year?) — longest zero-rain streak
-- station_summary(station_id, year?) — stats overview
-- rainiest_week(station_id, year?) — wettest 7-day period
-- hourly_pattern(station_id, year?) — avg rain by hour
+{_build_query_catalog()}
 
 JSON format: {{"query":"<id>","params":{{...}},"explanation":"<short>"}}
 If unanswerable: {{"query":null,"explanation":"<why>"}}
