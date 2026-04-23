@@ -53,19 +53,49 @@ def monthly_totals(station_id: str, year: int) -> dict:
     }
 
 
+PARTIAL_YEAR_DAYS = 300  # fewer recorded days than this → treat as partial
+
+
 def yearly_totals(station_id: str) -> dict:
     df = _load_station(station_id)
-    yearly = df.groupby(df["timestamp"].dt.year)["reading_value"].sum()
-    labels = [str(y) for y in yearly.index]
-    values = [round(v, 1) for v in yearly.values]
+    ts = df["timestamp"]
+    yearly = df.groupby(ts.dt.year)["reading_value"].sum()
+    coverage = ts.groupby(ts.dt.year).apply(lambda s: s.dt.normalize().nunique())
+
+    labels: list[str] = []
+    values: list[float] = []
+    full_year_totals: list[float] = []
+    partial_years: list[int] = []
+    for y in yearly.index:
+        total = round(float(yearly.loc[y]), 1)
+        is_partial = int(coverage.loc[y]) < PARTIAL_YEAR_DAYS
+        labels.append(f"{y}*" if is_partial else str(y))
+        values.append(total)
+        if is_partial:
+            partial_years.append(int(y))
+        else:
+            full_year_totals.append(total)
+
+    if full_year_totals:
+        avg = sum(full_year_totals) / len(full_year_totals)
+        text = f"Average (full years only): {avg:.1f} mm/year"
+    elif values:
+        text = "Not enough complete years to compute an average."
+    else:
+        text = "No data"
+
+    if partial_years:
+        text += (
+            f" Partial years marked with * (excluded from average): "
+            f"{', '.join(str(y) for y in partial_years)}."
+        )
+
     return {
         "type": "chart",
         "chart_type": "bar",
         "title": f"Yearly Rainfall — {_station_name(station_id)}",
         "data": {"labels": labels, "values": values},
-        "text": f"Average: {sum(values) / len(values):.1f} mm/year"
-        if values
-        else "No data",
+        "text": text,
     }
 
 
@@ -119,26 +149,38 @@ def compare_stations(
 
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
     df = _filter_year(_load_station(station_id), year)
-    daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
+    daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
     daily = daily.sort_index()
+
+    if len(daily) == 0:
+        return {"type": "text", "title": "Longest Dry Spell", "text": "No data."}
+
+    # Reindex to a contiguous calendar so sensor outages don't silently bridge
+    # two separate dry streaks. Gap days become NaN; NaN == 0 is False, so
+    # they correctly break runs.
+    full_idx = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
+    daily = daily.reindex(full_idx)
+    gap_days = int(daily.isna().sum())
 
     dry = daily == 0
     if not dry.any():
         return {"type": "text", "title": "Longest Dry Spell", "text": "No dry days found."}
 
-    # Find longest consecutive dry streak
     groups = (dry != dry.shift()).cumsum()
-    dry_groups = dry[dry].groupby(groups[dry])
-    longest = dry_groups.count().max()
-    longest_group_id = dry_groups.count().idxmax()
+    counts = dry[dry].groupby(groups[dry]).count()
+    longest = int(counts.max())
+    longest_group_id = counts.idxmax()
     group_dates = dry[groups == longest_group_id].index
-    start, end = group_dates[0], group_dates[-1]
+    start, end = group_dates[0].date(), group_dates[-1].date()
 
     year_label = f" ({year})" if year else ""
+    text = f"{longest} consecutive dry days, from {start} to {end}."
+    if gap_days:
+        text += f" (Note: {gap_days} day(s) with no recorded readings were excluded.)"
     return {
         "type": "text",
         "title": f"Longest Dry Spell — {_station_name(station_id)}{year_label}",
-        "text": f"{longest} consecutive dry days, from {start} to {end}.",
+        "text": text,
     }
 
 
@@ -170,19 +212,35 @@ def station_summary(station_id: str, year: int | None = None) -> dict:
 
 def rainiest_week(station_id: str, year: int | None = None) -> dict:
     df = _filter_year(_load_station(station_id), year)
-    daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
+    daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
     daily = daily.sort_index()
 
-    if len(daily) < 7:
-        return {"type": "text", "title": "Rainiest Week", "text": "Not enough data."}
+    if len(daily) == 0:
+        return {"type": "text", "title": "Rainiest Week", "text": "No data."}
+
+    # Reindex to a contiguous date range so a 7-row rolling window is always
+    # 7 calendar days. Windows that touch a gap evaluate to NaN and are
+    # skipped by idxmax.
+    full_idx = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
+    daily = daily.reindex(full_idx)
 
     rolling = daily.rolling(7).sum()
+    if rolling.notna().sum() == 0:
+        return {
+            "type": "text",
+            "title": "Rainiest Week",
+            "text": "Not enough contiguous data for a 7-day window.",
+        }
+
     peak_end = rolling.idxmax()
-    peak_start = daily.index[daily.index.get_loc(peak_end) - 6]
+    peak_start = peak_end - pd.Timedelta(days=6)
     peak_val = round(rolling.max(), 1)
 
     week_data = daily.loc[peak_start:peak_end]
-    rows = [[str(d), round(v, 1)] for d, v in week_data.items()]
+    rows = [
+        [str(d.date()), 0.0 if pd.isna(v) else round(v, 1)]
+        for d, v in week_data.items()
+    ]
 
     year_label = f" ({year})" if year else ""
     return {
@@ -190,13 +248,17 @@ def rainiest_week(station_id: str, year: int | None = None) -> dict:
         "title": f"Rainiest Week — {_station_name(station_id)}{year_label}",
         "columns": ["Date", "Rainfall (mm)"],
         "rows": rows,
-        "text": f"Rainiest 7-day period: {peak_start} to {peak_end} with {peak_val} mm total.",
+        "text": f"Rainiest 7-day period: {peak_start.date()} to {peak_end.date()} with {peak_val} mm total.",
     }
 
 
 def hourly_pattern(station_id: str, year: int | None = None) -> dict:
     df = _filter_year(_load_station(station_id), year)
-    hourly = df.groupby(df["timestamp"].dt.hour)["reading_value"].mean()
+    ts = df["timestamp"]
+    # Sum the 12 five-minute readings inside each (date, hour) so we get an
+    # actual hourly total, then average those totals across days.
+    hourly_totals = df.groupby([ts.dt.normalize(), ts.dt.hour])["reading_value"].sum()
+    hourly = hourly_totals.groupby(level=1).mean()
     labels = [f"{h:02d}:00" for h in hourly.index]
     values = [round(v, 3) for v in hourly.values]
 
@@ -204,9 +266,9 @@ def hourly_pattern(station_id: str, year: int | None = None) -> dict:
     return {
         "type": "chart",
         "chart_type": "bar",
-        "title": f"Avg Rainfall by Hour — {_station_name(station_id)}{year_label}",
+        "title": f"Avg Hourly Rainfall — {_station_name(station_id)}{year_label}",
         "data": {"labels": labels, "values": values},
-        "text": f"Peak hour: {labels[values.index(max(values))]} ({max(values):.3f} mm avg)"
+        "text": f"Peak hour: {labels[values.index(max(values))]} ({max(values):.3f} mm/h avg)"
         if values
         else "No data",
     }
