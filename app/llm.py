@@ -41,7 +41,17 @@ Queries:
 
 JSON format: {{"query":"<id>","params":{{...}},"explanation":"<short>"}}
 If unanswerable: {{"query":null,"explanation":"<why>"}}
-Use context station if none mentioned. Match station names to IDs."""
+Use context station if none mentioned. Match station names to IDs.
+
+Examples (assume S06 Paya Lebar is selected):
+User: "which month had the most rain in 2023"
+→ {{"query":"monthly_totals","params":{{"station_id":"S06","year":2023}},"explanation":"Monthly totals for 2023; the tallest bar is the rainiest month."}}
+
+User: "rainiest days last year"
+→ {{"query":"top_rainy_days","params":{{"station_id":"S06","year":2023}},"explanation":"Top 10 rainiest days in 2023."}}
+
+User: "compare with Upper Changi"
+→ {{"query":"compare_stations","params":{{"station_id_1":"S06","station_id_2":"S24"}},"explanation":"Monthly comparison against Upper Changi Road North."}}"""
 
 
 async def query_llm(message: str, context: dict | None = None) -> dict:
@@ -61,6 +71,7 @@ async def query_llm(message: str, context: dict | None = None) -> dict:
                     ],
                     "temperature": 0.1,
                     "max_tokens": 512,
+                    "response_format": {"type": "json_object"},
                 },
             )
             response.raise_for_status()

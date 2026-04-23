@@ -65,6 +65,8 @@ async def chat(req: ChatRequest):
         params = req.params or {}
         try:
             result = execute_query(req.query_id, params)
+            result["_query_id"] = req.query_id
+            result["_params"] = params
             return {
                 "role": "assistant",
                 "content": result.get("text", ""),
@@ -86,6 +88,8 @@ async def chat(req: ChatRequest):
                 }
 
             result = execute_query(llm_result["query"], llm_result["params"])
+            result["_query_id"] = llm_result["query"]
+            result["_params"] = llm_result["params"]
             content = llm_result.get("explanation", result.get("text", ""))
             return {"role": "assistant", "content": content, "result": result}
         except ValueError as e:
