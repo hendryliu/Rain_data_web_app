@@ -78,15 +78,18 @@ async def query_llm(message: str, context: dict | None = None) -> dict:
 
 def _parse_llm_response(content: str) -> dict:
     """Extract and validate JSON from LLM response text."""
-    # Try to find JSON in the response (may be wrapped in markdown code blocks)
-    json_match = re.search(r"\{.*\}", content, re.DOTALL)
-    if not json_match:
-        return {"query": None, "explanation": "Could not parse LLM response."}
-
+    # Most well-behaved responses are pure JSON. Only fall back to a {...}
+    # extraction if the model wrapped the JSON in prose or markdown.
     try:
-        parsed = json.loads(json_match.group())
+        parsed = json.loads(content.strip())
     except json.JSONDecodeError:
-        return {"query": None, "explanation": "Invalid JSON in LLM response."}
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not json_match:
+            return {"query": None, "explanation": "Could not parse LLM response."}
+        try:
+            parsed = json.loads(json_match.group())
+        except json.JSONDecodeError:
+            return {"query": None, "explanation": "Invalid JSON in LLM response."}
 
     query_id = parsed.get("query")
     explanation = parsed.get("explanation", "")

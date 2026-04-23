@@ -17,6 +17,7 @@ def _load_station(station_id: str) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
+@lru_cache(maxsize=1)
 def _load_stations_index() -> dict:
     with open(os.path.join(PROCESSED_DIR, "stations.json")) as f:
         return {s["id"]: s["name"] for s in json.load(f)}
@@ -69,6 +70,7 @@ def yearly_totals(station_id: str) -> dict:
 
 
 def top_rainy_days(station_id: str, year: int | None = None, n: int = 10) -> dict:
+    n = max(1, min(int(n), 100))
     df = _filter_year(_load_station(station_id), year)
     daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
     top = daily.nlargest(n)

@@ -189,6 +189,8 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 let selectedStation = null;
 let allStations = [];
 let llmAvailable = false;
+let rainfallController = null;
+let chartIdCounter = 0;
 
 // --- Load stations ---
 fetch('/api/stations')
@@ -224,7 +226,11 @@ function loadRainfall() {
   document.getElementById('placeholder').style.display = 'none';
   document.getElementById('chart').style.display = '';
 
-  fetch(url).then(r => r.json()).then(data => {
+  // Cancel any in-flight request so a slow response can't overwrite a newer one.
+  if (rainfallController) rainfallController.abort();
+  rainfallController = new AbortController();
+
+  fetch(url, { signal: rainfallController.signal }).then(r => r.json()).then(data => {
     document.getElementById('loading').style.display = 'none';
     Plotly.newPlot('chart', [{
       x: data.map(d => d.timestamp), y: data.map(d => d.value),
@@ -235,7 +241,8 @@ function loadRainfall() {
       xaxis: { title: 'Time' }, yaxis: { title: 'Rainfall (mm)' },
       margin: { t: 40, b: 50, l: 60, r: 20 }
     }, { responsive: true });
-  }).catch(() => {
+  }).catch(err => {
+    if (err.name === 'AbortError') return;
     document.getElementById('loading').style.display = 'none';
   });
 }
@@ -363,7 +370,7 @@ function renderResult(result) {
   }
 
   if (result.type === 'chart') {
-    const chartId = 'chat-chart-' + Date.now();
+    const chartId = 'chat-chart-' + (++chartIdCounter);
     html += `<div class="inline-chart" id="${chartId}"></div>`;
   }
 

@@ -4,7 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A web application project for visualizing historical rainfall data across Singapore. Currently in the data-collection phase — no application code has been written yet.
+A FastAPI + vanilla-JS web app for exploring historical rainfall across Singapore. Users click stations on a Leaflet map to view per-station time series, and use a chat sidebar (pre-built queries plus an optional local LLM via llama.cpp) for higher-level analysis.
+
+Layout:
+- `app/main.py` — FastAPI routes: `/api/stations`, `/api/rainfall/{id}`, `/api/chat*`, plus static frontend
+- `app/queries.py` — analytical query registry (monthly totals, dry spells, station comparisons, etc.) backed by per-station Parquet files
+- `app/llm.py` — llama.cpp client; the LLM picks a query ID + params from the registry, never executes code
+- `app/static/index.html` — single-file UI (Leaflet map + Plotly charts + chat panel)
+- `scripts/preprocess.py` — CSV → Parquet conversion + `stations.json` extraction
+- `processed/` — generated artifacts (Parquet per station, stations index)
 
 ## Data
 

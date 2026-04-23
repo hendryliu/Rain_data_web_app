@@ -1,20 +1,25 @@
 """FastAPI server for Singapore rainfall data."""
 
 import json
+import logging
 import os
 
-import pandas as pd
+import httpx
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .llm import query_llm
-from .queries import QUERY_REGISTRY, execute_query
+from .queries import QUERY_REGISTRY, _load_station, execute_query
+
+logger = logging.getLogger(__name__)
 
 PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "processed")
 
 app = FastAPI(title="Singapore Rainfall")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/api/stations")
@@ -28,11 +33,11 @@ def get_stations():
 
 @app.get("/api/rainfall/{station_id}")
 def get_rainfall(station_id: str, year: int | None = Query(None)):
-    path = os.path.join(PROCESSED_DIR, "rainfall", f"{station_id}.parquet")
-    if not os.path.exists(path):
+    try:
+        df = _load_station(station_id)
+    except ValueError:
         raise HTTPException(404, f"No data for station {station_id}")
 
-    df = pd.read_parquet(path)
     if year is not None:
         df = df[df["timestamp"].dt.year == year]
 
@@ -83,22 +88,27 @@ async def chat(req: ChatRequest):
             result = execute_query(llm_result["query"], llm_result["params"])
             content = llm_result.get("explanation", result.get("text", ""))
             return {"role": "assistant", "content": content, "result": result}
-        except Exception as e:
-            return {"role": "assistant", "content": f"Error: {e}", "result": None}
+        except ValueError as e:
+            # Validation errors (unknown station, bad year, etc.) are safe to surface
+            return {"role": "assistant", "content": str(e), "result": None}
+        except Exception:
+            logger.exception("Unhandled error in free-form chat")
+            return {
+                "role": "assistant",
+                "content": "Sorry, something went wrong processing your request.",
+                "result": None,
+            }
 
     raise HTTPException(400, "Provide either query_id or message")
 
 
 @app.get("/api/chat/health")
-def chat_health():
+async def chat_health():
     """Check if the LLM backend (llama.cpp) is reachable."""
+    url = os.environ.get("LLAMA_CPP_URL", "http://localhost:8080") + "/health"
     try:
-        import httpx
-
-        r = httpx.get(
-            os.environ.get("LLAMA_CPP_URL", "http://localhost:8080") + "/health",
-            timeout=2,
-        )
+        async with httpx.AsyncClient(timeout=2) as client:
+            r = await client.get(url)
         return {"llm_available": r.status_code == 200}
     except Exception:
         return {"llm_available": False}
