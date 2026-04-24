@@ -193,8 +193,8 @@ let allStations = [];
 let llmAvailable = false;
 let rainfallController = null;
 let chartIdCounter = 0;
-let currentResolution = null;
 let zoomDebounceTimer = null;
+let suppressNextRelayout = false;
 
 // --- Load stations ---
 fetch('/api/stations')
@@ -245,10 +245,12 @@ function loadRainfall(opts = {}) {
   rainfallController = new AbortController();
 
   fetch(url, { signal: rainfallController.signal })
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) throw new Error(`rainfall fetch failed: ${r.status}`);
+      return r.json();
+    })
     .then(data => {
       document.getElementById('loading').style.display = 'none';
-      currentResolution = data.resolution;
 
       const unitLabel =
         data.resolution === 'raw'    ? 'mm / 5-min' :
@@ -269,6 +271,9 @@ function loadRainfall(opts = {}) {
         trace.marker = { color: '#42a5f5' };
       }
 
+      // Plotly.react can emit a synthetic plotly_relayout that would otherwise
+      // re-trigger handleZoom and cause an infinite loop.
+      suppressNextRelayout = true;
       Plotly.react('chart', [trace], {
         title: `Rainfall \u2014 ${selectedStation.name} (${data.resolution})`,
         xaxis: { title: 'Time' },
@@ -286,18 +291,36 @@ function loadRainfall(opts = {}) {
     .catch(err => {
       if (err.name === 'AbortError') return;
       document.getElementById('loading').style.display = 'none';
+      document.getElementById('placeholder').style.display = '';
+      document.getElementById('placeholder').textContent = 'Could not load rainfall data.';
+      document.getElementById('chart').style.display = 'none';
     });
 }
 
 function handleZoom(ev) {
-  // Plotly emits this on any layout change. Only react to user-initiated zoom/pan.
-  const hasRange = ('xaxis.range[0]' in ev) || ('xaxis.range' in ev);
+  // Suppress events triggered by our own Plotly.react re-render.
+  if (suppressNextRelayout) {
+    suppressNextRelayout = false;
+    return;
+  }
+
+  // Double-click reset → fetch the full range (overview / daily tier).
+  if (ev['xaxis.autorange']) {
+    clearTimeout(zoomDebounceTimer);
+    zoomDebounceTimer = setTimeout(() => loadRainfall({}), 300);
+    return;
+  }
+
+  // User-initiated zoom or pan.
+  const hasRange = ('xaxis.range[0]' in ev) || Array.isArray(ev['xaxis.range']);
   if (!hasRange) return;
 
   clearTimeout(zoomDebounceTimer);
   zoomDebounceTimer = setTimeout(() => {
-    const rawStart = ev['xaxis.range[0]'] ?? ev['xaxis.range'][0];
-    const rawEnd   = ev['xaxis.range[1]'] ?? ev['xaxis.range'][1];
+    const range = ev['xaxis.range'];
+    const rawStart = ev['xaxis.range[0]'] ?? (Array.isArray(range) ? range[0] : null);
+    const rawEnd   = ev['xaxis.range[1]'] ?? (Array.isArray(range) ? range[1] : null);
+    if (rawStart == null || rawEnd == null) return;
     loadRainfall({ start: new Date(rawStart), end: new Date(rawEnd) });
   }, 300);
 }
