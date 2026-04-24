@@ -192,6 +192,9 @@ class TestRainfallEndpoint:
         assert body["resolution"] == "daily"
         # Points limited to what's in the fixture (200 days of data within the 366-day window)
         assert len(body["points"]) == 200
+        # Nail down the clipping bounds
+        assert body["points"][0]["timestamp"].startswith("2020-01-01")
+        assert body["points"][-1]["timestamp"].startswith("2020-07-18")
 
     def test_window_outside_data_returns_empty_points(self, client):
         # Window inside valid range but with no fixture data

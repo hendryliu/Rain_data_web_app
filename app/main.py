@@ -54,9 +54,11 @@ def get_rainfall(
     except ValueError:
         raise HTTPException(404, f"No data for station {station_id}")
 
+    # Normalize to pd.Timestamp so _resolve_window's max/min compare like types.
     start_ts = pd.Timestamp(start) if start is not None else None
     end_ts = pd.Timestamp(end) if end is not None else None
     window_start, window_end = _resolve_window(df, start_ts, end_ts, year)
+    # _resolve_window clamps but does not reorder; validate after resolution.
     if window_start > window_end:
         raise HTTPException(400, "start must be <= end")
 
