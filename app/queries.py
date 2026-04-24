@@ -39,6 +39,21 @@ MONTH_NAMES = [
 ]
 
 
+# --- /api/rainfall tier policy ---
+
+def pick_tier(start: pd.Timestamp, end: pd.Timestamp) -> str:
+    """Select the aggregation tier for a time window.
+
+    >180 days → daily; 7-180 days → hourly; <7 days → raw 5-min.
+    """
+    days = (end - start).days
+    if days > 180:
+        return "daily"
+    if days >= 7:
+        return "hourly"
+    return "raw"
+
+
 def monthly_totals(station_id: str, year: int) -> dict:
     df = _filter_year(_load_station(station_id), year)
     monthly = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
