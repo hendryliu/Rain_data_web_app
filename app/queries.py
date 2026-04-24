@@ -19,6 +19,10 @@ def _load_station(station_id: str) -> pd.DataFrame:
     # compares cleanly against tz-naive query parameters and constants.
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    # Preprocess writes reading_value as float32 to save disk space, but the
+    # analytical query functions feed values straight into the JSON encoder
+    # which can't serialize numpy.float32. Cast to float64 once at the source.
+    df["reading_value"] = df["reading_value"].astype("float64")
     return df
 
 
