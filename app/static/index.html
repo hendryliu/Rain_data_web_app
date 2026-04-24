@@ -279,7 +279,13 @@ function loadRainfall(opts = {}) {
         xaxis: { title: 'Time' },
         yaxis: { title: unitLabel },
         margin: { t: 40, b: 50, l: 60, r: 20 },
-      }, { responsive: true });
+        dragmode: 'zoom',
+      }, {
+        responsive: true,
+        // Drag-to-zoom is what drives the tier drill-down; box/lasso select
+        // would only confuse users here.
+        modeBarButtonsToRemove: ['select2d', 'lasso2d'],
+      });
 
       // Bind zoom handler once. Plotly.react preserves the node but not
       // necessarily prior listeners bound via .on() \u2014 re-binding is safe
