@@ -92,6 +92,26 @@ def _resolve_window(
     return start, end
 
 
+@lru_cache(maxsize=32)
+def daily_series(station_id: str) -> pd.Series:
+    """Daily rainfall totals for one station, indexed by calendar date midnight."""
+    df = _load_station(station_id)
+    return df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
+
+
+@lru_cache(maxsize=32)
+def hourly_series(station_id: str) -> pd.Series:
+    """Hourly rainfall totals for one station, indexed by hour-floored timestamp."""
+    df = _load_station(station_id)
+    return df.groupby(df["timestamp"].dt.floor("h"))["reading_value"].sum()
+
+
+def raw_series(station_id: str) -> pd.Series:
+    """Raw 5-minute readings for one station, indexed by timestamp."""
+    df = _load_station(station_id).set_index("timestamp")
+    return df["reading_value"]
+
+
 def monthly_totals(station_id: str, year: int) -> dict:
     df = _filter_year(_load_station(station_id), year)
     monthly = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
