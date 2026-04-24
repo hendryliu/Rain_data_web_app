@@ -7,8 +7,6 @@ app.queries.PROCESSED_DIR so the production loader reads from it. One station
 """
 
 import json
-import os
-import shutil
 
 import pandas as pd
 import pytest
@@ -59,10 +57,10 @@ def fixture_processed_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(fixture_processed_dir):
+def client(fixture_processed_dir, monkeypatch):
     """FastAPI TestClient rooted at the synthetic processed dir."""
     from app.main import app
     # Also patch main's PROCESSED_DIR in case the endpoint uses it directly.
     from app import main
-    main.PROCESSED_DIR = str(fixture_processed_dir)
+    monkeypatch.setattr(main, "PROCESSED_DIR", str(fixture_processed_dir))
     return TestClient(app)
