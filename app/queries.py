@@ -54,6 +54,41 @@ def pick_tier(start: pd.Timestamp, end: pd.Timestamp) -> str:
     return "raw"
 
 
+VALID_MIN = pd.Timestamp("2016-01-01")
+VALID_MAX = pd.Timestamp("2024-12-31 23:59:59")
+
+
+def _resolve_window(
+    df: pd.DataFrame,
+    start: pd.Timestamp | None,
+    end: pd.Timestamp | None,
+    year: int | None,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Convert optional API params into a concrete (start, end) window.
+
+    If `year` is given, it wins over start/end. Otherwise partial bounds are
+    filled from the DataFrame's timestamp range. The final window is clamped
+    to [VALID_MIN, VALID_MAX]; start > end is not treated as an error here —
+    the endpoint checks that separately after clamping.
+    """
+    if year is not None:
+        start = pd.Timestamp(year=year, month=1, day=1)
+        end = pd.Timestamp(year=year, month=12, day=31, hour=23, minute=59, second=59)
+    else:
+        if start is None:
+            start = df["timestamp"].min()
+        if end is None:
+            end = df["timestamp"].max()
+
+    # Clamp into the valid range.
+    start = max(start, VALID_MIN)
+    start = min(start, VALID_MAX)
+    end = max(end, VALID_MIN)
+    end = min(end, VALID_MAX)
+
+    return start, end
+
+
 def monthly_totals(station_id: str, year: int) -> dict:
     df = _filter_year(_load_station(station_id), year)
     monthly = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
