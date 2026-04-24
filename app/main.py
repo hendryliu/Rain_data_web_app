@@ -54,9 +54,19 @@ def get_rainfall(
     except ValueError:
         raise HTTPException(404, f"No data for station {station_id}")
 
-    # Normalize to pd.Timestamp so _resolve_window's max/min compare like types.
-    start_ts = pd.Timestamp(start) if start is not None else None
-    end_ts = pd.Timestamp(end) if end is not None else None
+    # Normalize to a tz-naive pd.Timestamp. JavaScript's toISOString() always
+    # emits UTC with 'Z', which FastAPI parses into a tz-aware datetime; the
+    # station data and VALID_MIN/MAX are tz-naive, so mixing them raises.
+    # Strip tz without converting — Plotly renders naive axis labels as-if-UTC,
+    # so the emitted UTC strings numerically match our naive station data.
+    def _naive(dt):
+        if dt is None:
+            return None
+        ts = pd.Timestamp(dt)
+        return ts.tz_localize(None) if ts.tz is not None else ts
+
+    start_ts = _naive(start)
+    end_ts = _naive(end)
     window_start, window_end = _resolve_window(df, start_ts, end_ts, year)
     # _resolve_window clamps but does not reorder; validate after resolution.
     if window_start > window_end:

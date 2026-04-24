@@ -205,3 +205,19 @@ class TestRainfallEndpoint:
         assert r.status_code == 200
         body = r.json()
         assert body["points"] == []
+
+    def test_tz_aware_iso_input_is_accepted(self, client):
+        # Frontend sends UTC ISO strings (Date.toISOString() always adds 'Z').
+        # Server-side clamping compares against tz-naive VALID_MIN/MAX, so the
+        # endpoint must strip tz before passing through _resolve_window.
+        r = client.get(
+            "/api/rainfall/S99",
+            params={
+                "start": "2020-01-01T00:00:00.000Z",
+                "end": "2020-01-08T00:00:00.000Z",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["resolution"] == "hourly"
+        assert len(body["points"]) > 0
