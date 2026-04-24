@@ -3,8 +3,10 @@
 import json
 import logging
 import os
+from datetime import datetime
 
 import httpx
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
@@ -12,7 +14,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .llm import query_llm
-from .queries import QUERY_REGISTRY, _load_station, execute_query
+from .queries import (
+    QUERY_REGISTRY,
+    _load_station,
+    _resolve_window,
+    daily_series,
+    execute_query,
+    hourly_series,
+    pick_tier,
+    raw_series,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,20 +43,35 @@ def get_stations():
 
 
 @app.get("/api/rainfall/{station_id}")
-def get_rainfall(station_id: str, year: int | None = Query(None)):
+def get_rainfall(
+    station_id: str,
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+    year: int | None = Query(None),
+):
     try:
         df = _load_station(station_id)
     except ValueError:
         raise HTTPException(404, f"No data for station {station_id}")
 
-    if year is not None:
-        df = df[df["timestamp"].dt.year == year]
+    start_ts = pd.Timestamp(start) if start is not None else None
+    end_ts = pd.Timestamp(end) if end is not None else None
+    window_start, window_end = _resolve_window(df, start_ts, end_ts, year)
+    if window_start > window_end:
+        raise HTTPException(400, "start must be <= end")
 
-    records = df.rename(columns={"reading_value": "value"}).to_dict(orient="records")
-    # Convert timestamps to ISO strings
-    for r in records:
-        r["timestamp"] = r["timestamp"].isoformat()
-    return records
+    tier = pick_tier(window_start, window_end)
+    series_fn = {"daily": daily_series, "hourly": hourly_series, "raw": raw_series}[tier]
+    series = series_fn(station_id)
+    clipped = series.loc[window_start:window_end]
+
+    return {
+        "resolution": tier,
+        "points": [
+            {"timestamp": ts.isoformat(), "value": round(float(v), 3)}
+            for ts, v in clipped.items()
+        ],
+    }
 
 
 # --- Chat endpoints ---

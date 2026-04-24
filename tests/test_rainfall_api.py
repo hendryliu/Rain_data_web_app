@@ -136,3 +136,69 @@ class TestResolveWindow:
         start, end = _resolve_window(sample_df, None, None, 2010)
         assert start == VALID_MIN
         assert end == VALID_MIN
+
+
+class TestRainfallEndpoint:
+    """Integration tests against the FastAPI app using TestClient."""
+
+    def test_default_window_returns_daily(self, client):
+        # 200-day fixture > 180 day threshold → daily
+        r = client.get("/api/rainfall/S99")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["resolution"] == "daily"
+        assert len(body["points"]) == 200
+        # Spot-check a point
+        assert body["points"][0]["value"] == 288.0
+
+    def test_seven_day_window_returns_hourly(self, client):
+        r = client.get(
+            "/api/rainfall/S99",
+            params={"start": "2020-01-01T00:00:00", "end": "2020-01-08T00:00:00"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["resolution"] == "hourly"
+        # 7 days * 24 hours + 1 boundary hour = 169
+        assert 168 <= len(body["points"]) <= 169
+
+    def test_three_day_window_returns_raw(self, client):
+        r = client.get(
+            "/api/rainfall/S99",
+            params={"start": "2020-01-01T00:00:00", "end": "2020-01-03T00:00:00"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["resolution"] == "raw"
+        # 2 full days * 288 + 1 boundary = 577
+        assert 576 <= len(body["points"]) <= 577
+
+    def test_unknown_station_returns_404(self, client):
+        r = client.get("/api/rainfall/UNKNOWN")
+        assert r.status_code == 404
+
+    def test_start_after_end_returns_400(self, client):
+        r = client.get(
+            "/api/rainfall/S99",
+            params={"start": "2020-06-01T00:00:00", "end": "2020-05-01T00:00:00"},
+        )
+        assert r.status_code == 400
+
+    def test_year_shortcut(self, client):
+        # Fixture is all in 2020; ?year=2020 covers the full year (366 days) → daily
+        r = client.get("/api/rainfall/S99", params={"year": 2020})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["resolution"] == "daily"
+        # Points limited to what's in the fixture (200 days of data within the 366-day window)
+        assert len(body["points"]) == 200
+
+    def test_window_outside_data_returns_empty_points(self, client):
+        # Window inside valid range but with no fixture data
+        r = client.get(
+            "/api/rainfall/S99",
+            params={"start": "2022-01-01T00:00:00", "end": "2022-02-01T00:00:00"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["points"] == []
