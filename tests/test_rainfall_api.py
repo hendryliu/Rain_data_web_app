@@ -130,3 +130,9 @@ class TestResolveWindow:
         )
         assert start == VALID_MIN
         assert end == VALID_MAX
+
+    def test_year_outside_valid_range_clamps_to_degenerate_window(self, sample_df):
+        from app.queries import _resolve_window
+        start, end = _resolve_window(sample_df, None, None, 2010)
+        assert start == VALID_MIN
+        assert end == VALID_MIN

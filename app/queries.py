@@ -58,6 +58,11 @@ VALID_MIN = pd.Timestamp("2016-01-01")
 VALID_MAX = pd.Timestamp("2024-12-31 23:59:59")
 
 
+def _clamp(ts: pd.Timestamp) -> pd.Timestamp:
+    """Clamp a timestamp into the valid data range."""
+    return min(max(ts, VALID_MIN), VALID_MAX)
+
+
 def _resolve_window(
     df: pd.DataFrame,
     start: pd.Timestamp | None,
@@ -81,10 +86,8 @@ def _resolve_window(
             end = df["timestamp"].max()
 
     # Clamp into the valid range.
-    start = max(start, VALID_MIN)
-    start = min(start, VALID_MAX)
-    end = max(end, VALID_MIN)
-    end = min(end, VALID_MAX)
+    start = _clamp(start)
+    end = _clamp(end)
 
     return start, end
 
