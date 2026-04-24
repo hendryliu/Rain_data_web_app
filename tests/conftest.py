@@ -26,9 +26,11 @@ def fixture_processed_dir(tmp_path, monkeypatch):
     rainfall = processed / "rainfall"
     rainfall.mkdir(parents=True)
 
-    # 200 days * 24 hours * 12 readings/hour = 57,600 rows
+    # 200 days * 24 hours * 12 readings/hour = 57,600 rows.
+    # Use tz-aware timestamps to mimic real parquet files
+    # (datetime64[us, UTC+08:00]) so tz-related regressions are caught.
     periods = FIXTURE_DAYS * 24 * 12
-    timestamps = pd.date_range(FIXTURE_START, periods=periods, freq="5min")
+    timestamps = pd.date_range(FIXTURE_START, periods=periods, freq="5min", tz="Asia/Singapore")
     df = pd.DataFrame({
         "timestamp": timestamps,
         "reading_value": [1.0] * periods,

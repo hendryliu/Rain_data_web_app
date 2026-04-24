@@ -14,7 +14,12 @@ def _load_station(station_id: str) -> pd.DataFrame:
     path = os.path.join(PROCESSED_DIR, "rainfall", f"{station_id}.parquet")
     if not os.path.exists(path):
         raise ValueError(f"No data for station {station_id}")
-    return pd.read_parquet(path)
+    df = pd.read_parquet(path)
+    # Real data is stored as datetime64[us, UTC+08:00]; strip the tz so it
+    # compares cleanly against tz-naive query parameters and constants.
+    if df["timestamp"].dt.tz is not None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    return df
 
 
 @lru_cache(maxsize=1)
