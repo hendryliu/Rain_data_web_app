@@ -33,12 +33,16 @@ def _build_query_catalog() -> str:
 
 
 def _build_system_prompt(context: dict | None = None) -> str:
-    # Only include full station list if user is asking about a station by name
-    # without context. If context has a selected station, we can keep it short.
+    # Always include the full station list; without it the model hallucinates
+    # IDs for stations mentioned by name. Selected-station becomes an
+    # additional hint above the list when provided.
+    blocks = []
     if context and context.get("selected_station"):
-        station_info = f"Currently selected station: {context['selected_station']} ({_load_stations_index().get(context['selected_station'], '')})"
-    else:
-        station_info = f"Stations:\n{_build_station_list()}"
+        sid = context["selected_station"]
+        name = _load_stations_index().get(sid, "")
+        blocks.append(f"Currently selected station: {sid} ({name})")
+    blocks.append(f"Stations (id=name):\n{_build_station_list()}")
+    station_info = "\n\n".join(blocks)
 
     return f"""Rainfall data assistant. Respond ONLY with JSON.
 

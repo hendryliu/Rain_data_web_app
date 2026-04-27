@@ -193,6 +193,8 @@ let allStations = [];
 let llmAvailable = false;
 let rainfallController = null;
 let chartIdCounter = 0;
+let zoomDebounceTimer = null;
+let suppressNextRelayout = false;
 
 // --- Load stations ---
 fetch('/api/stations')
@@ -218,35 +220,115 @@ function selectStation(station) {
 }
 
 document.getElementById('year-select').addEventListener('change', () => {
-  if (selectedStation) loadRainfall();
+  if (!selectedStation) return;
+  const y = document.getElementById('year-select').value;
+  loadRainfall(y ? { year: parseInt(y, 10) } : {});
 });
 
-function loadRainfall() {
-  const year = document.getElementById('year-select').value;
-  const url = `/api/rainfall/${selectedStation.id}` + (year ? `?year=${year}` : '');
+function loadRainfall(opts = {}) {
+  // opts may contain {start: Date, end: Date, year: number}
+  const params = new URLSearchParams();
+  if (opts.year) {
+    params.set('year', opts.year);
+  } else {
+    if (opts.start) params.set('start', opts.start.toISOString());
+    if (opts.end)   params.set('end', opts.end.toISOString());
+  }
+  const queryString = params.toString();
+  const url = `/api/rainfall/${selectedStation.id}` + (queryString ? `?${queryString}` : '');
+
   document.getElementById('loading').style.display = '';
   document.getElementById('placeholder').style.display = 'none';
   document.getElementById('chart').style.display = '';
 
-  // Cancel any in-flight request so a slow response can't overwrite a newer one.
   if (rainfallController) rainfallController.abort();
   rainfallController = new AbortController();
 
-  fetch(url, { signal: rainfallController.signal }).then(r => r.json()).then(data => {
-    document.getElementById('loading').style.display = 'none';
-    Plotly.newPlot('chart', [{
-      x: data.map(d => d.timestamp), y: data.map(d => d.value),
-      type: 'scatter', mode: 'lines',
-      line: { color: '#1976d2', width: 1 }, name: 'Rainfall'
-    }], {
-      title: `Rainfall \u2014 ${selectedStation.name}`,
-      xaxis: { title: 'Time' }, yaxis: { title: 'Rainfall (mm)' },
-      margin: { t: 40, b: 50, l: 60, r: 20 }
-    }, { responsive: true });
-  }).catch(err => {
-    if (err.name === 'AbortError') return;
-    document.getElementById('loading').style.display = 'none';
-  });
+  fetch(url, { signal: rainfallController.signal })
+    .then(r => {
+      if (!r.ok) throw new Error(`rainfall fetch failed: ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      document.getElementById('loading').style.display = 'none';
+
+      const unitLabel =
+        data.resolution === 'raw'    ? 'mm / 5-min' :
+        data.resolution === 'hourly' ? 'mm / hour'  :
+                                       'mm / day';
+      const chartType = data.resolution === 'raw' ? 'scatter' : 'bar';
+
+      const trace = {
+        x: data.points.map(p => p.timestamp),
+        y: data.points.map(p => p.value),
+        type: chartType,
+        name: 'Rainfall',
+      };
+      if (chartType === 'scatter') {
+        trace.mode = 'lines';
+        trace.line = { color: '#1976d2', width: 1 };
+      } else {
+        trace.marker = { color: '#42a5f5' };
+      }
+
+      // Plotly.react can emit a synthetic plotly_relayout that would otherwise
+      // re-trigger handleZoom and cause an infinite loop.
+      suppressNextRelayout = true;
+      Plotly.react('chart', [trace], {
+        title: `Rainfall \u2014 ${selectedStation.name} (${data.resolution})`,
+        xaxis: { title: 'Time' },
+        yaxis: { title: unitLabel },
+        margin: { t: 40, b: 50, l: 60, r: 20 },
+        dragmode: 'zoom',
+      }, {
+        responsive: true,
+        // Drag-to-zoom is what drives the tier drill-down; box/lasso select
+        // would only confuse users here.
+        modeBarButtonsToRemove: ['select2d', 'lasso2d'],
+      });
+
+      // Bind zoom handler once. Plotly.react preserves the node but not
+      // necessarily prior listeners bound via .on() \u2014 re-binding is safe
+      // because we removeAllListeners for this event first.
+      const chartEl = document.getElementById('chart');
+      if (chartEl.removeAllListeners) chartEl.removeAllListeners('plotly_relayout');
+      chartEl.on('plotly_relayout', handleZoom);
+    })
+    .catch(err => {
+      if (err.name === 'AbortError') return;
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('placeholder').style.display = '';
+      document.getElementById('placeholder').textContent = 'Could not load rainfall data.';
+      document.getElementById('chart').style.display = 'none';
+    });
+}
+
+function handleZoom(ev) {
+  // Suppress events triggered by our own Plotly.react re-render.
+  if (suppressNextRelayout) {
+    suppressNextRelayout = false;
+    return;
+  }
+
+  // Double-click reset → fetch the full range (overview / daily tier).
+  if (ev['xaxis.autorange']) {
+    clearTimeout(zoomDebounceTimer);
+    zoomDebounceTimer = setTimeout(() => loadRainfall({}), 300);
+    return;
+  }
+
+  // User-initiated zoom or pan.
+  const hasRange = ('xaxis.range[0]' in ev) || Array.isArray(ev['xaxis.range']);
+  if (!hasRange) return;
+
+  clearTimeout(zoomDebounceTimer);
+  zoomDebounceTimer = setTimeout(() => {
+    const range = ev['xaxis.range'];
+    const rawStart = ev['xaxis.range[0]'] ?? (Array.isArray(range) ? range[0] : null);
+    const rawEnd   = ev['xaxis.range[1]'] ?? (Array.isArray(range) ? range[1] : null);
+    if (rawStart == null || rawEnd == null) return;
+    loadRainfall({ start: new Date(rawStart), end: new Date(rawEnd) });
+  }, 300);
 }
 
 // --- Chat panel toggle ---

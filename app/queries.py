@@ -14,7 +14,16 @@ def _load_station(station_id: str) -> pd.DataFrame:
     path = os.path.join(PROCESSED_DIR, "rainfall", f"{station_id}.parquet")
     if not os.path.exists(path):
         raise ValueError(f"No data for station {station_id}")
-    return pd.read_parquet(path)
+    df = pd.read_parquet(path)
+    # Real data is stored as datetime64[us, UTC+08:00]; strip the tz so it
+    # compares cleanly against tz-naive query parameters and constants.
+    if df["timestamp"].dt.tz is not None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    # Preprocess writes reading_value as float32 to save disk space, but the
+    # analytical query functions feed values straight into the JSON encoder
+    # which can't serialize numpy.float32. Cast to float64 once at the source.
+    df["reading_value"] = df["reading_value"].astype("float64")
+    return df
 
 
 @lru_cache(maxsize=1)
@@ -37,6 +46,79 @@ MONTH_NAMES = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
+
+
+# --- /api/rainfall tier policy ---
+
+def pick_tier(start: pd.Timestamp, end: pd.Timestamp) -> str:
+    """Select the aggregation tier for a time window.
+
+    >180 days → daily; 7-180 days → hourly; <7 days → raw 5-min.
+    """
+    days = (end - start).days
+    if days > 180:
+        return "daily"
+    if days >= 7:
+        return "hourly"
+    return "raw"
+
+
+VALID_MIN = pd.Timestamp("2016-01-01")
+VALID_MAX = pd.Timestamp("2024-12-31 23:59:59")
+
+
+def _clamp(ts: pd.Timestamp) -> pd.Timestamp:
+    """Clamp a timestamp into the valid data range."""
+    return min(max(ts, VALID_MIN), VALID_MAX)
+
+
+def _resolve_window(
+    df: pd.DataFrame,
+    start: pd.Timestamp | None,
+    end: pd.Timestamp | None,
+    year: int | None,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Convert optional API params into a concrete (start, end) window.
+
+    If `year` is given, it wins over start/end. Otherwise partial bounds are
+    filled from the DataFrame's timestamp range. The final window is clamped
+    to [VALID_MIN, VALID_MAX]; start > end is not treated as an error here —
+    the endpoint checks that separately after clamping.
+    """
+    if year is not None:
+        start = pd.Timestamp(year=year, month=1, day=1)
+        end = pd.Timestamp(year=year, month=12, day=31, hour=23, minute=59, second=59)
+    else:
+        if start is None:
+            start = df["timestamp"].min()
+        if end is None:
+            end = df["timestamp"].max()
+
+    # Clamp into the valid range.
+    start = _clamp(start)
+    end = _clamp(end)
+
+    return start, end
+
+
+@lru_cache(maxsize=32)
+def daily_series(station_id: str) -> pd.Series:
+    """Daily rainfall totals for one station, indexed by calendar date midnight."""
+    df = _load_station(station_id)
+    return df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
+
+
+@lru_cache(maxsize=32)
+def hourly_series(station_id: str) -> pd.Series:
+    """Hourly rainfall totals for one station, indexed by hour-floored timestamp."""
+    df = _load_station(station_id)
+    return df.groupby(df["timestamp"].dt.floor("h"))["reading_value"].sum()
+
+
+def raw_series(station_id: str) -> pd.Series:
+    """Raw 5-minute readings for one station, indexed by timestamp."""
+    df = _load_station(station_id).set_index("timestamp")
+    return df["reading_value"]
 
 
 def monthly_totals(station_id: str, year: int) -> dict:
