@@ -1,5 +1,6 @@
 """Pre-built rainfall query functions and registry."""
 
+import glob
 import json
 import os
 from functools import lru_cache
@@ -9,21 +10,59 @@ import pandas as pd
 PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "processed")
 
 
-@lru_cache(maxsize=32)
-def _load_station(station_id: str) -> pd.DataFrame:
-    path = os.path.join(PROCESSED_DIR, "rainfall", f"{station_id}.parquet")
-    if not os.path.exists(path):
+def _empty_df() -> pd.DataFrame:
+    """Schema-shaped empty frame returned when a year file is absent."""
+    return pd.DataFrame({
+        "timestamp": pd.Series([], dtype="datetime64[ns]"),
+        "reading_value": pd.Series([], dtype="float64"),
+    })
+
+
+@lru_cache(maxsize=128)
+def _load_station(station_id: str, year: int | None = None) -> pd.DataFrame:
+    """Load a station's readings.
+
+    If `year` is given, returns only that year's data (empty DataFrame if the
+    year file is absent for an existing station). If `year` is None, returns
+    all years concatenated. Raises ValueError if the station has no data
+    directory at all.
+    """
+    station_dir = os.path.join(PROCESSED_DIR, "rainfall", station_id)
+    if not os.path.isdir(station_dir):
         raise ValueError(f"No data for station {station_id}")
-    df = pd.read_parquet(path)
-    # Real data is stored as datetime64[us, UTC+08:00]; strip the tz so it
-    # compares cleanly against tz-naive query parameters and constants.
+
+    if year is not None:
+        path = os.path.join(station_dir, f"{int(year)}.parquet")
+        if not os.path.exists(path):
+            return _empty_df()
+        df = pd.read_parquet(path)
+    else:
+        files = sorted(glob.glob(os.path.join(station_dir, "*.parquet")))
+        if not files:
+            return _empty_df()
+        df = pd.concat([pd.read_parquet(p) for p in files], ignore_index=True)
+
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_localize(None)
-    # Preprocess writes reading_value as float32 to save disk space, but the
-    # analytical query functions feed values straight into the JSON encoder
-    # which can't serialize numpy.float32. Cast to float64 once at the source.
     df["reading_value"] = df["reading_value"].astype("float64")
     return df
+
+
+def _available_years(station_id: str) -> list[int]:
+    """Return sorted list of years for which this station has a parquet file."""
+    station_dir = os.path.join(PROCESSED_DIR, "rainfall", station_id)
+    if not os.path.isdir(station_dir):
+        raise ValueError(f"No data for station {station_id}")
+    years = []
+    for fname in os.listdir(station_dir):
+        if not fname.endswith(".parquet"):
+            continue
+        stem = fname[: -len(".parquet")]
+        try:
+            years.append(int(stem))
+        except ValueError:
+            continue
+    return sorted(years)
 
 
 @lru_cache(maxsize=1)
@@ -34,12 +73,6 @@ def _load_stations_index() -> dict:
 
 def _station_name(station_id: str) -> str:
     return _load_stations_index().get(station_id, station_id)
-
-
-def _filter_year(df: pd.DataFrame, year: int | None) -> pd.DataFrame:
-    if year is not None:
-        return df[df["timestamp"].dt.year == year]
-    return df
 
 
 MONTH_NAMES = [
@@ -122,7 +155,7 @@ def raw_series(station_id: str) -> pd.Series:
 
 
 def monthly_totals(station_id: str, year: int) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     monthly = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
     labels = [MONTH_NAMES[m - 1] for m in monthly.index]
     values = [round(v, 1) for v in monthly.values]
@@ -139,22 +172,29 @@ PARTIAL_YEAR_DAYS = 300  # fewer recorded days than this → treat as partial
 
 
 def yearly_totals(station_id: str) -> dict:
-    df = _load_station(station_id)
-    ts = df["timestamp"]
-    yearly = df.groupby(ts.dt.year)["reading_value"].sum()
-    coverage = ts.groupby(ts.dt.year).apply(lambda s: s.dt.normalize().nunique())
+    years = _available_years(station_id)
+
+    yearly: dict[int, float] = {}
+    coverage: dict[int, int] = {}
+    for y in years:
+        df_y = _load_station(station_id, year=y)
+        if len(df_y) == 0:
+            continue
+        ts = df_y["timestamp"]
+        yearly[y] = float(df_y["reading_value"].sum())
+        coverage[y] = int(ts.dt.normalize().nunique())
 
     labels: list[str] = []
     values: list[float] = []
     full_year_totals: list[float] = []
     partial_years: list[int] = []
-    for y in yearly.index:
-        total = round(float(yearly.loc[y]), 1)
-        is_partial = int(coverage.loc[y]) < PARTIAL_YEAR_DAYS
+    for y in sorted(yearly.keys()):
+        total = round(yearly[y], 1)
+        is_partial = coverage[y] < PARTIAL_YEAR_DAYS
         labels.append(f"{y}*" if is_partial else str(y))
         values.append(total)
         if is_partial:
-            partial_years.append(int(y))
+            partial_years.append(y)
         else:
             full_year_totals.append(total)
 
@@ -183,7 +223,7 @@ def yearly_totals(station_id: str) -> dict:
 
 def top_rainy_days(station_id: str, year: int | None = None, n: int = 10) -> dict:
     n = max(1, min(int(n), 100))
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
     top = daily.nlargest(n)
     rows = [[str(date), round(val, 1)] for date, val in top.items()]
@@ -203,8 +243,8 @@ def compare_stations(
     name1 = _station_name(station_id_1)
     name2 = _station_name(station_id_2)
 
-    df1 = _filter_year(_load_station(station_id_1), year)
-    df2 = _filter_year(_load_station(station_id_2), year)
+    df1 = _load_station(station_id_1, year=year)
+    df2 = _load_station(station_id_2, year=year)
 
     m1 = df1.groupby(df1["timestamp"].dt.month)["reading_value"].sum()
     m2 = df2.groupby(df2["timestamp"].dt.month)["reading_value"].sum()
@@ -230,7 +270,7 @@ def compare_stations(
 
 
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
     daily = daily.sort_index()
 
@@ -267,7 +307,7 @@ def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
 
 
 def station_summary(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
 
     total = round(daily.sum(), 1)
@@ -293,7 +333,7 @@ def station_summary(station_id: str, year: int | None = None) -> dict:
 
 
 def rainiest_week(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
     daily = daily.sort_index()
 
@@ -335,7 +375,7 @@ def rainiest_week(station_id: str, year: int | None = None) -> dict:
 
 
 def hourly_pattern(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     ts = df["timestamp"]
     # Sum the 12 five-minute readings inside each (date, hour) so we get an
     # actual hourly total, then average those totals across days.
