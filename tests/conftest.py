@@ -1,9 +1,10 @@
 """Test fixtures for the rainfall API.
 
-Builds a synthetic per-station parquet under a tmp directory and monkeypatches
-app.queries.PROCESSED_DIR so the production loader reads from it. One station
-('S99') with 200 days of data at 5-minute intervals; each reading is exactly
-1.0 mm, so daily sums are 288.0 and hourly sums are 12.0.
+Builds a synthetic processed/ directory under a tmp dir with one station ('S99')
+in the partitioned layout. The default fixture has a single year (2020) with
+200 days at 5-minute intervals; an extension fixture adds 2021 for multi-year
+tests. Each reading is exactly 1.0 mm so daily sums are 288.0 and hourly sums
+are 12.0.
 """
 
 import json
@@ -13,29 +14,34 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-FIXTURE_START = pd.Timestamp("2020-01-01 00:00:00")
-FIXTURE_DAYS = 200  # Spans > 180 so default window hits the daily tier.
+FIXTURE_DAYS = 200  # > 180 → default window picks the daily tier
 FIXTURE_STATION_ID = "S99"
 FIXTURE_STATION_NAME = "Synthetic Test Station"
+DEFAULT_YEAR = 2020
+EXTRA_YEAR = 2021
+
+
+def _write_year(year_path, year, days):
+    """Write one year's parquet with `days` of 5-minute readings at 1.0 mm each."""
+    periods = days * 24 * 12
+    start = pd.Timestamp(f"{year}-01-01 00:00:00")
+    timestamps = pd.date_range(start, periods=periods, freq="5min", tz="Asia/Singapore")
+    df = pd.DataFrame({
+        "timestamp": timestamps,
+        "reading_value": pd.Series([1.0] * periods, dtype="float32"),
+    })
+    df.to_parquet(year_path, index=False)
 
 
 @pytest.fixture
 def fixture_processed_dir(tmp_path, monkeypatch):
-    """Build a processed/ directory with one synthetic station."""
+    """processed/ with one station ('S99') containing only year 2020."""
     processed = tmp_path / "processed"
     rainfall = processed / "rainfall"
-    rainfall.mkdir(parents=True)
+    station_dir = rainfall / FIXTURE_STATION_ID
+    station_dir.mkdir(parents=True)
 
-    # 200 days * 24 hours * 12 readings/hour = 57,600 rows.
-    # Use tz-aware timestamps to mimic real parquet files
-    # (datetime64[us, UTC+08:00]) so tz-related regressions are caught.
-    periods = FIXTURE_DAYS * 24 * 12
-    timestamps = pd.date_range(FIXTURE_START, periods=periods, freq="5min", tz="Asia/Singapore")
-    df = pd.DataFrame({
-        "timestamp": timestamps,
-        "reading_value": [1.0] * periods,
-    })
-    df.to_parquet(rainfall / f"{FIXTURE_STATION_ID}.parquet", index=False)
+    _write_year(station_dir / f"{DEFAULT_YEAR}.parquet", DEFAULT_YEAR, FIXTURE_DAYS)
 
     stations = [{
         "id": FIXTURE_STATION_ID,
@@ -47,22 +53,35 @@ def fixture_processed_dir(tmp_path, monkeypatch):
 
     from app import queries
     monkeypatch.setattr(queries, "PROCESSED_DIR", str(processed))
-    # Clear caches that might hold references to the real processed dir.
     queries._load_station.cache_clear()
     queries._load_stations_index.cache_clear()
 
     yield processed
 
-    # Post-test cleanup: clear caches again so the next test starts fresh.
     queries._load_station.cache_clear()
     queries._load_stations_index.cache_clear()
+
+
+@pytest.fixture
+def fixture_processed_dir_two_years(fixture_processed_dir):
+    """Same fixture, plus a 2021.parquet file for multi-year tests.
+
+    Note: clears _load_station's LRU after writing the new file, otherwise the
+    cached single-year frame from any prior call would mask the new year.
+    """
+    station_dir = fixture_processed_dir / "rainfall" / FIXTURE_STATION_ID
+    _write_year(station_dir / f"{EXTRA_YEAR}.parquet", EXTRA_YEAR, FIXTURE_DAYS)
+
+    from app import queries
+    queries._load_station.cache_clear()
+
+    return fixture_processed_dir
 
 
 @pytest.fixture
 def client(fixture_processed_dir, monkeypatch):
     """FastAPI TestClient rooted at the synthetic processed dir."""
     from app.main import app
-    # Also patch main's PROCESSED_DIR in case the endpoint uses it directly.
     from app import main
     monkeypatch.setattr(main, "PROCESSED_DIR", str(fixture_processed_dir))
     return TestClient(app)

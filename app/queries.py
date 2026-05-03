@@ -1,5 +1,6 @@
 """Pre-built rainfall query functions and registry."""
 
+import glob
 import json
 import os
 from functools import lru_cache
@@ -9,21 +10,59 @@ import pandas as pd
 PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "processed")
 
 
-@lru_cache(maxsize=32)
-def _load_station(station_id: str) -> pd.DataFrame:
-    path = os.path.join(PROCESSED_DIR, "rainfall", f"{station_id}.parquet")
-    if not os.path.exists(path):
+def _empty_df() -> pd.DataFrame:
+    """Schema-shaped empty frame returned when a year file is absent."""
+    return pd.DataFrame({
+        "timestamp": pd.Series([], dtype="datetime64[ns]"),
+        "reading_value": pd.Series([], dtype="float64"),
+    })
+
+
+@lru_cache(maxsize=128)
+def _load_station(station_id: str, year: int | None = None) -> pd.DataFrame:
+    """Load a station's readings.
+
+    If `year` is given, returns only that year's data (empty DataFrame if the
+    year file is absent for an existing station). If `year` is None, returns
+    all years concatenated. Raises ValueError if the station has no data
+    directory at all.
+    """
+    station_dir = os.path.join(PROCESSED_DIR, "rainfall", station_id)
+    if not os.path.isdir(station_dir):
         raise ValueError(f"No data for station {station_id}")
-    df = pd.read_parquet(path)
-    # Real data is stored as datetime64[us, UTC+08:00]; strip the tz so it
-    # compares cleanly against tz-naive query parameters and constants.
+
+    if year is not None:
+        path = os.path.join(station_dir, f"{int(year)}.parquet")
+        if not os.path.exists(path):
+            return _empty_df()
+        df = pd.read_parquet(path)
+    else:
+        files = sorted(glob.glob(os.path.join(station_dir, "*.parquet")))
+        if not files:
+            return _empty_df()
+        df = pd.concat([pd.read_parquet(p) for p in files], ignore_index=True)
+
     if df["timestamp"].dt.tz is not None:
         df["timestamp"] = df["timestamp"].dt.tz_localize(None)
-    # Preprocess writes reading_value as float32 to save disk space, but the
-    # analytical query functions feed values straight into the JSON encoder
-    # which can't serialize numpy.float32. Cast to float64 once at the source.
     df["reading_value"] = df["reading_value"].astype("float64")
     return df
+
+
+def _available_years(station_id: str) -> list[int]:
+    """Return sorted list of years for which this station has a parquet file."""
+    station_dir = os.path.join(PROCESSED_DIR, "rainfall", station_id)
+    if not os.path.isdir(station_dir):
+        raise ValueError(f"No data for station {station_id}")
+    years = []
+    for fname in os.listdir(station_dir):
+        if not fname.endswith(".parquet"):
+            continue
+        stem = fname[: -len(".parquet")]
+        try:
+            years.append(int(stem))
+        except ValueError:
+            continue
+    return sorted(years)
 
 
 @lru_cache(maxsize=1)
