@@ -75,12 +75,6 @@ def _station_name(station_id: str) -> str:
     return _load_stations_index().get(station_id, station_id)
 
 
-def _filter_year(df: pd.DataFrame, year: int | None) -> pd.DataFrame:
-    if year is not None:
-        return df[df["timestamp"].dt.year == year]
-    return df
-
-
 MONTH_NAMES = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -161,7 +155,7 @@ def raw_series(station_id: str) -> pd.Series:
 
 
 def monthly_totals(station_id: str, year: int) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     monthly = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
     labels = [MONTH_NAMES[m - 1] for m in monthly.index]
     values = [round(v, 1) for v in monthly.values]
@@ -178,22 +172,29 @@ PARTIAL_YEAR_DAYS = 300  # fewer recorded days than this → treat as partial
 
 
 def yearly_totals(station_id: str) -> dict:
-    df = _load_station(station_id)
-    ts = df["timestamp"]
-    yearly = df.groupby(ts.dt.year)["reading_value"].sum()
-    coverage = ts.groupby(ts.dt.year).apply(lambda s: s.dt.normalize().nunique())
+    years = _available_years(station_id)
+
+    yearly: dict[int, float] = {}
+    coverage: dict[int, int] = {}
+    for y in years:
+        df_y = _load_station(station_id, year=y)
+        if len(df_y) == 0:
+            continue
+        ts = df_y["timestamp"]
+        yearly[y] = float(df_y["reading_value"].sum())
+        coverage[y] = int(ts.dt.normalize().nunique())
 
     labels: list[str] = []
     values: list[float] = []
     full_year_totals: list[float] = []
     partial_years: list[int] = []
-    for y in yearly.index:
-        total = round(float(yearly.loc[y]), 1)
-        is_partial = int(coverage.loc[y]) < PARTIAL_YEAR_DAYS
+    for y in sorted(yearly.keys()):
+        total = round(yearly[y], 1)
+        is_partial = coverage[y] < PARTIAL_YEAR_DAYS
         labels.append(f"{y}*" if is_partial else str(y))
         values.append(total)
         if is_partial:
-            partial_years.append(int(y))
+            partial_years.append(y)
         else:
             full_year_totals.append(total)
 
@@ -222,7 +223,7 @@ def yearly_totals(station_id: str) -> dict:
 
 def top_rainy_days(station_id: str, year: int | None = None, n: int = 10) -> dict:
     n = max(1, min(int(n), 100))
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
     top = daily.nlargest(n)
     rows = [[str(date), round(val, 1)] for date, val in top.items()]
@@ -242,8 +243,8 @@ def compare_stations(
     name1 = _station_name(station_id_1)
     name2 = _station_name(station_id_2)
 
-    df1 = _filter_year(_load_station(station_id_1), year)
-    df2 = _filter_year(_load_station(station_id_2), year)
+    df1 = _load_station(station_id_1, year=year)
+    df2 = _load_station(station_id_2, year=year)
 
     m1 = df1.groupby(df1["timestamp"].dt.month)["reading_value"].sum()
     m2 = df2.groupby(df2["timestamp"].dt.month)["reading_value"].sum()
@@ -269,7 +270,7 @@ def compare_stations(
 
 
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
     daily = daily.sort_index()
 
@@ -306,7 +307,7 @@ def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
 
 
 def station_summary(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.date)["reading_value"].sum()
 
     total = round(daily.sum(), 1)
@@ -332,7 +333,7 @@ def station_summary(station_id: str, year: int | None = None) -> dict:
 
 
 def rainiest_week(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
     daily = daily.sort_index()
 
@@ -374,7 +375,7 @@ def rainiest_week(station_id: str, year: int | None = None) -> dict:
 
 
 def hourly_pattern(station_id: str, year: int | None = None) -> dict:
-    df = _filter_year(_load_station(station_id), year)
+    df = _load_station(station_id, year=year)
     ts = df["timestamp"]
     # Sum the 12 five-minute readings inside each (date, hour) so we get an
     # actual hourly total, then average those totals across days.
