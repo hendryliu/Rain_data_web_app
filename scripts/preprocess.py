@@ -1,37 +1,24 @@
-"""Preprocess rainfall CSVs into per-station Parquet files.
+"""Preprocess rainfall CSVs into partitioned per-station Parquet files.
 
-Streaming design: each yearly CSV is loaded once, split per station, and
-flushed to a temp parquet partition. After all CSVs are processed, each
-station's year-parts are concatenated, sorted, and written to its final
-parquet. Peak memory is roughly one year of narrow-column data.
+For each yearly CSV: read once, group by (station_id, timestamp_year), and
+write directly to processed/rainfall/{station_id}/{year}.parquet, appending
+across CSV files when the same (station, year) bucket appears more than once
+(e.g., a CSV's rows spilling into the previous or next calendar year).
 """
 
 import glob
 import json
 import os
-import re
-import shutil
 
 import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "processed")
 RAINFALL_DIR = os.path.join(OUTPUT_DIR, "rainfall")
-TMP_DIR = os.path.join(OUTPUT_DIR, "_tmp")
-
-YEAR_RE = re.compile(r"(\d{4})")
-
-
-def year_from_filename(path: str) -> str:
-    m = YEAR_RE.search(os.path.basename(path))
-    if not m:
-        raise ValueError(f"Could not extract year from {path}")
-    return m.group(1)
 
 
 def main():
     os.makedirs(RAINFALL_DIR, exist_ok=True)
-    os.makedirs(TMP_DIR, exist_ok=True)
 
     csv_files = sorted(glob.glob(os.path.join(DATA_DIR, "*.csv")))
     if not csv_files:
@@ -41,11 +28,11 @@ def main():
     print(f"Found {len(csv_files)} CSV files")
 
     stations: dict[str, dict] = {}
+    # (station_id, year) -> list of dataframes, flushed and concatenated at end
+    buckets: dict[tuple[str, int], list[pd.DataFrame]] = {}
 
-    # Pass 1: per CSV, split by station and write temp parquet partitions.
     for csv_path in csv_files:
-        year = year_from_filename(csv_path)
-        print(f"[{year}] Reading {os.path.basename(csv_path)}...")
+        print(f"Reading {os.path.basename(csv_path)}...")
         df = pd.read_csv(
             csv_path,
             usecols=[
@@ -65,7 +52,6 @@ def main():
             },
         )
 
-        # Track station metadata (last-seen coords/name wins)
         for _, row in (
             df[["station_id", "station_name", "location_longitude", "location_latitude"]]
             .drop_duplicates(subset="station_id", keep="last")
@@ -80,38 +66,34 @@ def main():
 
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df[["station_id", "timestamp", "reading_value"]]
+        df["__year"] = df["timestamp"].dt.year
 
-        print(f"[{year}] Writing per-station temp parquet for {df['station_id'].nunique()} stations...")
-        for station_id, group in df.groupby("station_id", sort=False):
-            station_tmp = os.path.join(TMP_DIR, station_id)
-            os.makedirs(station_tmp, exist_ok=True)
-            out = group[["timestamp", "reading_value"]].reset_index(drop=True)
-            out.to_parquet(os.path.join(station_tmp, f"{year}.parquet"), index=False)
+        for (station_id, year), group in df.groupby(["station_id", "__year"], sort=False):
+            buckets.setdefault((station_id, int(year)), []).append(
+                group[["timestamp", "reading_value"]].reset_index(drop=True)
+            )
 
         del df
 
-    # Write stations.json
+    # Flush each bucket once.
+    print(f"Writing {len(buckets)} (station, year) parquet files...")
+    written = 0
+    for (station_id, year), frames in buckets.items():
+        station_dir = os.path.join(RAINFALL_DIR, station_id)
+        os.makedirs(station_dir, exist_ok=True)
+        combined = pd.concat(frames, ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+        out = os.path.join(station_dir, f"{year}.parquet")
+        combined.to_parquet(out, index=False)
+        written += 1
+        if written % 50 == 0:
+            print(f"  wrote {written}/{len(buckets)}")
+
     stations_list = sorted(stations.values(), key=lambda s: s["name"])
     stations_path = os.path.join(OUTPUT_DIR, "stations.json")
     with open(stations_path, "w") as f:
         json.dump(stations_list, f)
     print(f"Wrote {len(stations_list)} stations to {stations_path}")
-
-    # Pass 2: merge each station's yearly parts into final parquet.
-    print("Merging per-station parquet files...")
-    station_dirs = sorted(os.listdir(TMP_DIR))
-    for i, station_id in enumerate(station_dirs, 1):
-        station_tmp = os.path.join(TMP_DIR, station_id)
-        parts = sorted(glob.glob(os.path.join(station_tmp, "*.parquet")))
-        frames = [pd.read_parquet(p) for p in parts]
-        combined = pd.concat(frames, ignore_index=True)
-        combined = combined.sort_values("timestamp").reset_index(drop=True)
-        combined.to_parquet(os.path.join(RAINFALL_DIR, f"{station_id}.parquet"), index=False)
-        if i % 10 == 0 or i == len(station_dirs):
-            print(f"  merged {i}/{len(station_dirs)} stations")
-
-    shutil.rmtree(TMP_DIR)
-    print(f"Done. Wrote Parquet files for {len(station_dirs)} stations.")
+    print(f"Done. Wrote {written} parquet files.")
 
 
 if __name__ == "__main__":
