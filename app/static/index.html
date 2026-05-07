@@ -53,10 +53,6 @@
   }
 
   /* Quick query buttons */
-  #quick-queries {
-    padding: 10px; display: flex; flex-wrap: wrap; gap: 6px;
-    border-bottom: 1px solid #e0e0e0; background: white;
-  }
   .qq-btn {
     padding: 5px 10px; font-size: 0.8em; border: 1px solid #ccc;
     border-radius: 14px; background: white; cursor: pointer;
@@ -66,6 +62,23 @@
   .qq-btn:disabled { opacity: 0.4; cursor: default; }
   .qq-btn.special { border-color: #7b1fa2; color: #7b1fa2; }
   .qq-btn.special:hover:not(:disabled) { background: #f3e5f5; }
+
+  /* Tabs */
+  #qq-tabs {
+    display: flex; padding: 8px 10px 0; gap: 4px;
+    background: white; border-bottom: 1px solid #f0f0f0;
+  }
+  .qq-tab {
+    padding: 6px 12px; font-size: 0.8em;
+    border: none; background: transparent; cursor: pointer;
+    color: #666; border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0;
+  }
+  .qq-tab:hover { color: #1976d2; }
+  .qq-tab.active { color: #1976d2; border-bottom-color: #1976d2; font-weight: 600; }
+  #quick-queries { padding: 8px 10px 10px; }
+  .qq-tab-panel { display: none; flex-wrap: wrap; gap: 6px; }
+  .qq-tab-panel.active { display: flex; }
 
   /* Messages area */
   #messages {
@@ -151,6 +164,7 @@
 
 <div id="chat-panel">
   <div id="chat-header">Rainfall Chat</div>
+  <div id="qq-tabs"></div>
   <div id="quick-queries"></div>
   <div id="messages">
     <div class="msg assistant">Select a station on the map, then use the buttons above or type a question.</div>
@@ -344,34 +358,85 @@ function toggleChat() {
 }
 
 // --- Quick query buttons ---
+const QQ_TABS = [
+  { id: 'station', label: 'Station' },
+  { id: 'trends',  label: 'Trends' },
+  { id: 'multi',   label: 'Multi-station' },
+  { id: 'season',  label: 'Seasonal' },
+];
+
 const QUICK_QUERIES = [
-  { id: 'station_summary', label: 'Station Stats', needsStation: true },
-  { id: 'monthly_totals', label: 'Monthly Totals', needsStation: true, needsYear: true },
-  { id: 'yearly_totals', label: 'Yearly Totals', needsStation: true },
-  { id: 'top_rainy_days', label: 'Top Rainy Days', needsStation: true },
-  { id: 'longest_dry_spell', label: 'Dry Spell', needsStation: true },
-  { id: 'hourly_pattern', label: 'Hourly Pattern', needsStation: true },
-  { id: 'rainiest_week', label: 'Rainiest Week', needsStation: true },
-  { id: 'compare_stations', label: 'Compare Stations', needsStation: true, special: true },
+  // Station tab
+  { id: 'station_summary', label: 'Station Stats',  tab: 'station', needsStation: true },
+  { id: 'monthly_totals',  label: 'Monthly Totals', tab: 'station', needsStation: true, needsYear: true },
+  { id: 'yearly_totals',   label: 'Yearly Totals',  tab: 'station', needsStation: true },
+  { id: 'top_rainy_days',  label: 'Top Rainy Days', tab: 'station', needsStation: true },
+  { id: 'longest_dry_spell', label: 'Dry Spell',    tab: 'station', needsStation: true },
+  { id: 'hourly_pattern',  label: 'Hourly Pattern', tab: 'station', needsStation: true },
+  { id: 'rainiest_week',   label: 'Rainiest Week',  tab: 'station', needsStation: true },
+
+  // Trends tab
+  { id: 'compare_stations', label: 'Compare Stations', tab: 'trends', needsStation: true, special: true },
+  { id: 'yearly_trend',     label: 'Yearly Trend',     tab: 'trends', needsStation: true },
+  { id: 'year_comparison',  label: 'Year Comparison',  tab: 'trends', needsStation: true, special: true },
+
+  // Multi-station tab
+  { id: 'station_ranking', label: 'Station Ranking', tab: 'multi', special: true },
+  { id: 'regional_total',  label: 'Regional Total',  tab: 'multi' },
+
+  // Seasonal tab
+  { id: 'monsoon_breakdown', label: 'Monsoon Breakdown', tab: 'season', needsStation: true, needsYear: true },
+  { id: 'season_comparison', label: 'Season Comparison', tab: 'season', needsStation: true },
 ];
 
 function buildQQButtons() {
-  const container = document.getElementById('quick-queries');
-  QUICK_QUERIES.forEach(q => {
+  // Build tab strip.
+  const tabsContainer = document.getElementById('qq-tabs');
+  QQ_TABS.forEach(t => {
     const btn = document.createElement('button');
-    btn.className = 'qq-btn' + (q.special ? ' special' : '');
-    btn.textContent = q.label;
-    btn.disabled = true;
-    btn.dataset.queryId = q.id;
-    btn.onclick = () => handleQQ(q);
-    container.appendChild(btn);
+    btn.className = 'qq-tab';
+    btn.dataset.tabId = t.id;
+    btn.textContent = t.label;
+    btn.onclick = () => activateTab(t.id);
+    tabsContainer.appendChild(btn);
   });
+
+  // Build per-tab chip panels.
+  const container = document.getElementById('quick-queries');
+  QQ_TABS.forEach(t => {
+    const panel = document.createElement('div');
+    panel.className = 'qq-tab-panel';
+    panel.dataset.tabId = t.id;
+    QUICK_QUERIES.filter(q => q.tab === t.id).forEach(q => {
+      const btn = document.createElement('button');
+      btn.className = 'qq-btn' + (q.special ? ' special' : '');
+      btn.textContent = q.label;
+      btn.disabled = true;
+      btn.dataset.queryId = q.id;
+      btn.onclick = () => handleQQ(q);
+      panel.appendChild(btn);
+    });
+    container.appendChild(panel);
+  });
+
+  const initial = sessionStorage.getItem('qq.activeTab') || 'station';
+  activateTab(initial);
+}
+
+function activateTab(tabId) {
+  document.querySelectorAll('.qq-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tabId === tabId);
+  });
+  document.querySelectorAll('.qq-tab-panel').forEach(p => {
+    p.classList.toggle('active', p.dataset.tabId === tabId);
+  });
+  sessionStorage.setItem('qq.activeTab', tabId);
 }
 
 function updateQQButtons() {
   document.querySelectorAll('.qq-btn').forEach(btn => {
     const q = QUICK_QUERIES.find(qq => qq.id === btn.dataset.queryId);
-    btn.disabled = q.needsStation && !selectedStation;
+    btn.disabled = (q.needsStation && !selectedStation);
   });
 }
 
