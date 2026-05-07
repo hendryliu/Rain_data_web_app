@@ -19,3 +19,15 @@ def test_season_label_buckets(month, label):
 def test_season_label_rejects_out_of_range(bad_month):
     with pytest.raises(ValueError):
         queries._season_label(bad_month)
+
+
+def test_all_station_ids_returns_sorted_list(fixture_processed_dir_multi_station):
+    queries._load_stations_index.cache_clear()
+    ids = queries._all_station_ids()
+    assert ids == ["S88", "S99"]
+
+
+def test_all_station_ids_single_station(fixture_processed_dir):
+    queries._load_stations_index.cache_clear()
+    ids = queries._all_station_ids()
+    assert ids == ["S99"]

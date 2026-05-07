@@ -71,6 +71,11 @@ def _load_stations_index() -> dict:
         return {s["id"]: s["name"] for s in json.load(f)}
 
 
+def _all_station_ids() -> list[str]:
+    """Sorted list of station IDs from stations.json."""
+    return sorted(_load_stations_index().keys())
+
+
 def _station_name(station_id: str) -> str:
     return _load_stations_index().get(station_id, station_id)
 
