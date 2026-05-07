@@ -181,17 +181,20 @@ async def chat_health():
 @app.get("/api/chat/queries")
 def get_queries():
     """Return available queries for frontend buttons."""
-    return [
-        {
+    out = []
+    for qid, entry in QUERY_REGISTRY.items():
+        params = {}
+        for k, v in entry["params"].items():
+            param_info = {"type": v["type"], "required": v["required"]}
+            if "default" in v:
+                param_info["default"] = v["default"]
+            params[k] = param_info
+        out.append({
             "id": qid,
             "description": entry["description"],
-            "params": {
-                k: {"type": v["type"], "required": v["required"]}
-                for k, v in entry["params"].items()
-            },
-        }
-        for qid, entry in QUERY_REGISTRY.items()
-    ]
+            "params": params,
+        })
+    return out
 
 
 # Serve frontend
