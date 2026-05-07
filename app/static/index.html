@@ -484,6 +484,15 @@ function renderResult(result) {
         barmode: 'group', margin: { t: 10, b: 30, l: 40, r: 10 },
         legend: { orientation: 'h', y: -0.2 }
       }, { responsive: true, displayModeBar: false });
+    } else if (result.chart_type === 'line') {
+      const traces = result.data.series.map(s => ({
+        x: result.data.labels, y: s.values,
+        type: 'scatter', mode: 'lines+markers', name: s.name
+      }));
+      Plotly.newPlot(chartEl, traces, {
+        margin: { t: 10, b: 30, l: 40, r: 10 },
+        legend: { orientation: 'h', y: -0.2 }
+      }, { responsive: true, displayModeBar: false });
     } else {
       Plotly.newPlot(chartEl, [{
         x: result.data.labels, y: result.data.values,
