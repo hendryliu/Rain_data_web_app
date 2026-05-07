@@ -473,7 +473,7 @@ const QQ_TABS = [
 const QUICK_QUERIES = [
   // Station tab
   { id: 'station_summary', label: 'Station Stats',  tab: 'station', needsStation: true },
-  { id: 'monthly_totals',  label: 'Monthly Totals', tab: 'station', needsStation: true, needsYear: true },
+  { id: 'monthly_totals',  label: 'Monthly Totals', tab: 'station', needsStation: true },
   { id: 'yearly_totals',   label: 'Yearly Totals',  tab: 'station', needsStation: true },
   { id: 'top_rainy_days',  label: 'Top Rainy Days', tab: 'station', needsStation: true },
   { id: 'longest_dry_spell', label: 'Dry Spell',    tab: 'station', needsStation: true },
@@ -490,7 +490,7 @@ const QUICK_QUERIES = [
   { id: 'regional_total',  label: 'Regional Total',  tab: 'multi' },
 
   // Seasonal tab
-  { id: 'monsoon_breakdown', label: 'Monsoon Breakdown', tab: 'season', needsStation: true, needsYear: true },
+  { id: 'monsoon_breakdown', label: 'Monsoon Breakdown', tab: 'season', needsStation: true },
   { id: 'season_comparison', label: 'Season Comparison', tab: 'season', needsStation: true },
 ];
 
@@ -704,8 +704,10 @@ async function handleQQ(q) {
     if ('station_id_1' in schema.params) prefilled.station_id_1 = selectedStation.id;
   }
   const yearVal = document.getElementById('year-select').value;
-  if (yearVal && 'year' in schema.params) {
-    prefilled.year = parseInt(yearVal, 10);
+  if (yearVal) {
+    if ('year' in schema.params) prefilled.year = parseInt(yearVal, 10);
+    // For two-year queries (year_comparison), seed the *first* slot.
+    if ('year_a' in schema.params) prefilled.year_a = parseInt(yearVal, 10);
   }
 
   // Determine which required params remain unmet.
