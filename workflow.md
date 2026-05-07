@@ -65,19 +65,20 @@ Open http://localhost:8000 in your browser.
 ### 4. Use the app
 
 - The map shows all rainfall stations across Singapore
-- Click a station marker to see its name and load its rainfall chart
-- Use the year dropdown to filter by year (2016–2024) or view all years
+- Click a marker, or use the search bar above the map to find a station by name or ID
+- Use the year dropdown to filter by year (years available in the dataset are loaded from the API)
 - Use the chat sidebar on the right for data analysis (see below)
 
 ### 5. Chat features (quick queries)
 
-The chat sidebar provides pre-built query buttons that work without any extra setup:
+The chat sidebar provides pre-built query buttons grouped into four tabs:
 
-1. Select a station on the map
-2. Optionally select a year from the dropdown
-3. Click any quick-query button: Station Stats, Monthly Totals, Yearly Totals, Top Rainy Days, Dry Spell, Hourly Pattern, Rainiest Week, or Compare Stations
+- **Station** — single-station summaries: Stats, Monthly Totals, Yearly Totals, Top Rainy Days, Dry Spell, Hourly Pattern, Rainiest Week.
+- **Trends** — Compare Stations, Yearly Trend (with linear fit), Year Comparison.
+- **Multi-station** — Station Ranking (rank all stations by year), Regional Total (cross-station mean over time).
+- **Seasonal** — Monsoon Breakdown (NE / Pre-SW / SW / Pre-NE for one year), Season Comparison (NE/SW/Inter across years).
 
-Results appear inline as charts, tables, or text.
+Most chips run immediately using the station/year selected in the map and dropdown. Queries that need extra inputs (e.g. a second station or a second year) open a parameter picker.
 
 ### 6. Chat features (free-form natural language — optional)
 
