@@ -141,15 +141,6 @@
       <span id="station-label"></span>
       <select id="year-select" style="display:none">
         <option value="">All years</option>
-        <option value="2016">2016</option>
-        <option value="2017">2017</option>
-        <option value="2018">2018</option>
-        <option value="2019">2019</option>
-        <option value="2020">2020</option>
-        <option value="2021">2021</option>
-        <option value="2022">2022</option>
-        <option value="2023">2023</option>
-        <option value="2024">2024</option>
       </select>
       <span id="loading">Loading...</span>
     </div>
@@ -208,6 +199,19 @@ fetch('/api/stations')
       }).addTo(map);
       marker.bindPopup(`<b>${s.name}</b><br>ID: ${s.id}`);
       marker.on('click', () => selectStation(s));
+    });
+  });
+
+// --- Load available years ---
+fetch('/api/years')
+  .then(r => r.json())
+  .then(years => {
+    const sel = document.getElementById('year-select');
+    years.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = String(y);
+      opt.textContent = String(y);
+      sel.appendChild(opt);
     });
   });
 
