@@ -67,3 +67,29 @@ def test_station_ranking_respects_n(fixture_processed_dir_multi_station):
     out = queries.station_ranking(year=2020, n=1)
     assert len(out["rows"]) == 1
     assert out["rows"][0][1] == "Wettest Test Station"
+
+
+def test_regional_total_year_scoped_monthly(fixture_processed_dir_multi_station):
+    queries._regional_series.cache_clear()
+    out = queries.regional_total(year=2020, mode="monthly")
+    assert out["chart_type"] == "line"
+    assert "2020" in out["title"]
+    series = out["data"]["series"]
+    assert len(series) == 1
+    assert series[0]["name"].lower().startswith("all")
+    # 200 days starting Jan → roughly 7 month buckets.
+    assert 6 <= len(out["data"]["labels"]) <= 7
+    assert all(v > 0 for v in series[0]["values"])
+
+
+def test_regional_total_invalid_mode_raises(fixture_processed_dir_multi_station):
+    queries._regional_series.cache_clear()
+    with pytest.raises(ValueError):
+        queries.regional_total(year=2020, mode="weekly")
+
+
+def test_regional_total_no_data_returns_text(fixture_processed_dir_multi_station):
+    queries._regional_series.cache_clear()
+    out = queries.regional_total(year=2019, mode="monthly")
+    assert out["type"] == "text"
+    assert "No data" in out["text"]

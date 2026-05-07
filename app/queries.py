@@ -452,6 +452,32 @@ def station_ranking(year: int, n: int = 20) -> dict:
     }
 
 
+def regional_total(year: int | None = None, mode: str = "monthly") -> dict:
+    """All-Singapore mean rainfall over time, monthly or daily."""
+    series = _regional_series(year, mode)
+    if len(series) == 0:
+        return {"type": "text", "title": "Regional Total", "text": "No data."}
+
+    if mode == "monthly":
+        labels = [ts.strftime("%Y-%m") for ts in series.index]
+    else:
+        labels = [str(ts.date()) for ts in series.index]
+    values = [round(float(v), 2) for v in series.values]
+
+    year_label = f" ({year})" if year else " (all years)"
+    n_stations = len(_all_station_ids())
+    return {
+        "type": "chart",
+        "chart_type": "line",
+        "title": f"Regional Mean Rainfall{year_label}",
+        "data": {
+            "labels": labels,
+            "series": [{"name": "All-SG mean", "values": values}],
+        },
+        "text": f"Mean across {n_stations} stations.",
+    }
+
+
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
     df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
@@ -669,6 +695,14 @@ QUERY_REGISTRY = {
         "params": {
             "year": {"type": "int", "required": True},
             "n": {"type": "int", "required": False, "default": 20},
+        },
+    },
+    "regional_total": {
+        "function": regional_total,
+        "description": "All-Singapore mean rainfall over time across stations; mode is 'monthly' or 'daily'",
+        "params": {
+            "year": {"type": "int", "required": False},
+            "mode": {"type": "str", "required": False, "default": "monthly"},
         },
     },
 }
