@@ -1,10 +1,10 @@
 """Test fixtures for the rainfall API.
 
-Builds a synthetic processed/ directory under a tmp dir with one station ('S99')
-in the partitioned layout. The default fixture has a single year (2020) with
-200 days at 5-minute intervals; an extension fixture adds 2021 for multi-year
-tests. Each reading is exactly 1.0 mm so daily sums are 288.0 and hourly sums
-are 12.0.
+Builds a synthetic processed/ directory under a tmp dir in the partitioned layout.
+The base fixture has station S99 (one year, 2020) with 200 days of 5-minute readings
+at 1.0 mm each (daily sums 288.0, hourly sums 12.0). fixture_processed_dir_two_years
+adds 2021 for multi-year tests. fixture_processed_dir_multi_station adds station S88
+with both 2020 and 2021 at 2.0 mm/reading (totals 2x S99's, useful for ranking tests).
 """
 
 import json
