@@ -478,6 +478,41 @@ def regional_total(year: int | None = None, mode: str = "monthly") -> dict:
     }
 
 
+def monsoon_breakdown(station_id: str, year: int) -> dict:
+    """Total rainfall in each monsoon bucket for one station-year."""
+    df = _load_station(station_id, year=year)
+
+    bucket_order = ["NE", "Pre-SW", "SW", "Pre-NE"]
+    if len(df) == 0:
+        return {
+            "type": "chart",
+            "chart_type": "bar",
+            "title": f"Monsoon Breakdown — {_station_name(station_id)} ({year})",
+            "data": {"labels": bucket_order, "values": [0.0, 0.0, 0.0, 0.0]},
+            "text": "No data.",
+        }
+
+    months = df["timestamp"].dt.month
+    labels = months.map(_season_label)
+    by_bucket = df.groupby(labels)["reading_value"].sum()
+    values = [round(float(by_bucket.get(b, 0.0)), 1) for b in bucket_order]
+
+    total = sum(values)
+    if total > 0:
+        pcts = [f"{b} {v / total * 100:.0f}%" for b, v in zip(bucket_order, values)]
+        text = "Share of yearly total — " + ", ".join(pcts)
+    else:
+        text = "No rainfall recorded."
+
+    return {
+        "type": "chart",
+        "chart_type": "bar",
+        "title": f"Monsoon Breakdown — {_station_name(station_id)} ({year})",
+        "data": {"labels": bucket_order, "values": values},
+        "text": text,
+    }
+
+
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
     df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
@@ -703,6 +738,14 @@ QUERY_REGISTRY = {
         "params": {
             "year": {"type": "int", "required": False},
             "mode": {"type": "str", "required": False, "default": "monthly"},
+        },
+    },
+    "monsoon_breakdown": {
+        "function": monsoon_breakdown,
+        "description": "Rainfall split into NE (Jan-Mar+Dec), Pre-SW (Apr-May), SW (Jun-Sep), Pre-NE (Oct-Nov) for one station-year",
+        "params": {
+            "station_id": {"type": "str", "required": True},
+            "year": {"type": "int", "required": True},
         },
     },
 }

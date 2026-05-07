@@ -93,3 +93,14 @@ def test_regional_total_no_data_returns_text(fixture_processed_dir_multi_station
     out = queries.regional_total(year=2019, mode="monthly")
     assert out["type"] == "text"
     assert "No data" in out["text"]
+
+
+def test_monsoon_breakdown_returns_four_buckets(fixture_processed_dir):
+    out = queries.monsoon_breakdown("S99", year=2020)
+    assert out["chart_type"] == "bar"
+    assert out["data"]["labels"] == ["NE", "Pre-SW", "SW", "Pre-NE"]
+    assert len(out["data"]["values"]) == 4
+    # Fixture has 200 days starting Jan 1 → covers NE (Jan-Mar), Pre-SW (Apr-May),
+    # most of SW (Jun-Jul, partial Aug). Pre-NE (Oct-Nov) and Dec NE should be 0.
+    by_label = dict(zip(out["data"]["labels"], out["data"]["values"]))
+    assert by_label["Pre-NE"] == 0.0
