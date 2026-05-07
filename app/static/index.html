@@ -13,6 +13,27 @@
 
   /* Left column: map + chart */
   #left-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #station-search {
+    position: relative;
+    padding: 6px 10px; background: white;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  #station-search-input {
+    width: 100%; padding: 6px 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 0.9em;
+  }
+  #station-search-input:focus { outline: none; border-color: #1976d2; }
+  #station-search-results {
+    position: absolute; left: 10px; right: 10px; top: 100%;
+    background: white; border: 1px solid #ddd; border-top: none;
+    list-style: none; max-height: 240px; overflow-y: auto;
+    z-index: 1500; display: none;
+  }
+  #station-search-results.active { display: block; }
+  #station-search-results li {
+    padding: 6px 10px; cursor: pointer;
+  }
+  #station-search-results li:hover, #station-search-results li.kbd-active { background: #e3f2fd; }
   #map { flex: 1; min-height: 0; }
   #chart-container {
     flex: 1; padding: 10px;
@@ -163,6 +184,10 @@
 <button id="chat-toggle" onclick="toggleChat()">Chat</button>
 
 <div id="left-col">
+  <div id="station-search">
+    <input id="station-search-input" type="text" placeholder="Search station…" autocomplete="off">
+    <ul id="station-search-results"></ul>
+  </div>
   <div id="map"></div>
   <div id="chart-container">
     <div id="controls">
@@ -232,6 +257,69 @@ fetch('/api/stations')
       marker.on('click', () => selectStation(s));
     });
   });
+
+// --- Station search ---
+(function setupStationSearch() {
+  const input = document.getElementById('station-search-input');
+  const list = document.getElementById('station-search-results');
+  let kbdIdx = -1;
+
+  function render(matches) {
+    list.innerHTML = '';
+    matches.forEach((s, i) => {
+      const li = document.createElement('li');
+      li.textContent = `${s.name} (${s.id})`;
+      if (i === kbdIdx) li.classList.add('kbd-active');
+      li.onmousedown = (e) => {  // mousedown so it fires before blur clears the list
+        e.preventDefault();
+        pick(s);
+      };
+      list.appendChild(li);
+    });
+    list.classList.toggle('active', matches.length > 0);
+  }
+
+  function currentMatches() {
+    const q = input.value.toLowerCase().trim();
+    if (!q) return [];
+    return allStations
+      .filter(s => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+      .slice(0, 8);
+  }
+
+  function pick(s) {
+    selectStation(s);
+    map.setView([s.lat, s.lng], 15);
+    input.value = '';
+    list.classList.remove('active');
+    kbdIdx = -1;
+  }
+
+  input.addEventListener('input', () => {
+    kbdIdx = -1;
+    render(currentMatches());
+  });
+  input.addEventListener('focus', () => render(currentMatches()));
+  input.addEventListener('blur', () => setTimeout(() => list.classList.remove('active'), 150));
+  input.addEventListener('keydown', (e) => {
+    const matches = currentMatches();
+    if (!matches.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      kbdIdx = (kbdIdx + 1) % matches.length;
+      render(matches);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      kbdIdx = (kbdIdx - 1 + matches.length) % matches.length;
+      render(matches);
+    } else if (e.key === 'Enter' && kbdIdx >= 0) {
+      e.preventDefault();
+      pick(matches[kbdIdx]);
+    } else if (e.key === 'Escape') {
+      list.classList.remove('active');
+    }
+  });
+})();
 
 // --- Load available years ---
 fetch('/api/years')
