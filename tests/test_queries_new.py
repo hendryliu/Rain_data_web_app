@@ -27,3 +27,19 @@ def test_yearly_trend_returns_chart_with_actual_values(fixture_processed_dir_two
     actual = next(s for s in out["data"]["series"] if s["name"] == "Actual")
     assert len(actual["values"]) == 2
     assert all(v > 0 for v in actual["values"])
+
+
+def test_year_comparison_two_years_returns_grouped_bar(fixture_processed_dir_two_years):
+    out = queries.year_comparison("S99", year_a=2020, year_b=2021)
+    assert out["chart_type"] == "grouped_bar"
+    assert out["data"]["labels"] == queries.MONTH_NAMES
+    series = out["data"]["series"]
+    assert {s["name"] for s in series} == {"2020", "2021"}
+    assert all(len(s["values"]) == 12 for s in series)
+
+
+def test_year_comparison_missing_year_returns_zeros_for_that_series(fixture_processed_dir):
+    # 2019 has no parquet; series should still be 12 entries, all zero.
+    out = queries.year_comparison("S99", year_a=2020, year_b=2019)
+    s_2019 = next(s for s in out["data"]["series"] if s["name"] == "2019")
+    assert s_2019["values"] == [0.0] * 12

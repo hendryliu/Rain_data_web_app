@@ -395,6 +395,35 @@ def compare_stations(
     }
 
 
+def year_comparison(station_id: str, year_a: int, year_b: int) -> dict:
+    """Compare one station's monthly rainfall across two years."""
+    name = _station_name(station_id)
+
+    def _monthly(year: int) -> list[float]:
+        df = _load_station(station_id, year=year)
+        if len(df) == 0:
+            return [0.0] * 12
+        m = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
+        return [round(float(m.get(i + 1, 0.0)), 1) for i in range(12)]
+
+    values_a = _monthly(year_a)
+    values_b = _monthly(year_b)
+
+    return {
+        "type": "chart",
+        "chart_type": "grouped_bar",
+        "title": f"{name}: {year_a} vs {year_b}",
+        "data": {
+            "labels": MONTH_NAMES,
+            "series": [
+                {"name": str(year_a), "values": values_a},
+                {"name": str(year_b), "values": values_b},
+            ],
+        },
+        "text": f"Total — {year_a}: {sum(values_a):.1f} mm, {year_b}: {sum(values_b):.1f} mm",
+    }
+
+
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
     df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
@@ -597,6 +626,15 @@ QUERY_REGISTRY = {
             "year": {"type": "int", "required": False},
         },
     },
+    "year_comparison": {
+        "function": year_comparison,
+        "description": "Compare monthly rainfall for one station across two years",
+        "params": {
+            "station_id": {"type": "str", "required": True},
+            "year_a": {"type": "int", "required": True},
+            "year_b": {"type": "int", "required": True},
+        },
+    },
 }
 
 
@@ -631,9 +669,10 @@ def execute_query(query_id: str, params: dict) -> dict:
         if "station_id" in name and val not in stations:
             raise ValueError(f"Unknown station: {val}")
 
-    # Validate year range
-    if "year" in coerced and coerced["year"] is not None:
-        if not (2016 <= coerced["year"] <= 2024):
-            raise ValueError("Year must be between 2016 and 2024")
+    # Validate year range — applies to any param whose name starts with 'year'.
+    for name, val in coerced.items():
+        if name.startswith("year") and val is not None:
+            if not (2016 <= int(val) <= 2024):
+                raise ValueError(f"{name} must be between 2016 and 2024")
 
     return entry["function"](**coerced)
