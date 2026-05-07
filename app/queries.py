@@ -80,6 +80,24 @@ MONTH_NAMES = [
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
 
+SEASON_BUCKETS = {
+    "NE": (1, 2, 3, 12),
+    "Pre-SW": (4, 5),
+    "SW": (6, 7, 8, 9),
+    "Pre-NE": (10, 11),
+}
+
+
+def _season_label(month: int) -> str:
+    """Map a calendar month (1-12) to a Singapore monsoon bucket.
+
+    Convention: NE includes Dec of the same year (no cross-year span).
+    """
+    for label, months in SEASON_BUCKETS.items():
+        if month in months:
+            return label
+    raise ValueError(f"month must be 1-12, got {month}")
+
 
 # --- /api/rainfall tier policy ---
 
