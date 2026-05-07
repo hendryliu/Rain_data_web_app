@@ -31,3 +31,18 @@ def test_all_station_ids_single_station(fixture_processed_dir):
     queries._load_stations_index.cache_clear()
     ids = queries._all_station_ids()
     assert ids == ["S99"]
+
+
+def test_cross_station_yearly_totals_includes_both(fixture_processed_dir_multi_station):
+    queries._cross_station_yearly_totals.cache_clear()
+    totals = queries._cross_station_yearly_totals(2020)
+    assert set(totals.keys()) == {"S88", "S99"}
+    # S88 readings are 2x S99's → total is also 2x.
+    assert abs(totals["S88"] - 2 * totals["S99"]) < 1e-3
+
+
+def test_cross_station_yearly_totals_skips_missing_year(fixture_processed_dir_multi_station):
+    queries._cross_station_yearly_totals.cache_clear()
+    # Neither station has 2019 — result should be empty (not raise).
+    totals = queries._cross_station_yearly_totals(2019)
+    assert totals == {}

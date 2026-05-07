@@ -76,6 +76,24 @@ def _all_station_ids() -> list[str]:
     return sorted(_load_stations_index().keys())
 
 
+@lru_cache(maxsize=32)
+def _cross_station_yearly_totals(year: int) -> dict[str, float]:
+    """Total rainfall (mm) per station for the given year.
+
+    Stations whose year-file is absent or empty are skipped (not zero-ranked).
+    """
+    out: dict[str, float] = {}
+    for sid in _all_station_ids():
+        try:
+            df = _load_station(sid, year=year)
+        except ValueError:
+            continue
+        if len(df) == 0:
+            continue
+        out[sid] = float(df["reading_value"].sum())
+    return out
+
+
 def _station_name(station_id: str) -> str:
     return _load_stations_index().get(station_id, station_id)
 
