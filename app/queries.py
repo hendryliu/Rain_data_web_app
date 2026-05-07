@@ -243,6 +243,20 @@ def monthly_totals(station_id: str, year: int) -> dict:
 PARTIAL_YEAR_DAYS = 300  # fewer recorded days than this → treat as partial
 
 
+def _linear_fit(xs: list[int], ys: list[float]) -> tuple[float, float]:
+    """Least-squares slope and intercept for ys = slope*xs + intercept."""
+    n = len(xs)
+    if n == 0:
+        return 0.0, 0.0
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    den = sum((x - mean_x) ** 2 for x in xs)
+    slope = num / den if den else 0.0
+    intercept = mean_y - slope * mean_x
+    return slope, intercept
+
+
 def yearly_totals(station_id: str) -> dict:
     years = _available_years(station_id)
 
@@ -289,6 +303,46 @@ def yearly_totals(station_id: str) -> dict:
         "chart_type": "bar",
         "title": f"Yearly Rainfall — {_station_name(station_id)}",
         "data": {"labels": labels, "values": values},
+        "text": text,
+    }
+
+
+def yearly_trend(station_id: str) -> dict:
+    """Yearly totals + linear trend (fit only on full years)."""
+    years = _available_years(station_id)
+    yearly: dict[int, float] = {}
+    coverage: dict[int, int] = {}
+    for y in years:
+        df_y = _load_station(station_id, year=y)
+        if len(df_y) == 0:
+            continue
+        ts = df_y["timestamp"]
+        yearly[y] = float(df_y["reading_value"].sum())
+        coverage[y] = int(ts.dt.normalize().nunique())
+
+    sorted_years = sorted(yearly.keys())
+    if not sorted_years:
+        return {"type": "text", "title": "Yearly Trend", "text": "No data."}
+
+    labels = [str(y) for y in sorted_years]
+    actuals = [round(yearly[y], 1) for y in sorted_years]
+
+    full_years = [y for y in sorted_years if coverage[y] >= PARTIAL_YEAR_DAYS]
+    series = [{"name": "Actual", "values": actuals}]
+
+    if len(full_years) >= 2:
+        slope, intercept = _linear_fit(full_years, [yearly[y] for y in full_years])
+        fitted = [round(slope * y + intercept, 1) for y in sorted_years]
+        series.append({"name": "Trend", "values": fitted})
+        text = f"Trend: {slope:+.1f} mm/year (linear fit over {len(full_years)} full years)"
+    else:
+        text = f"Need ≥ 2 full years to compute a trend (have {len(full_years)})."
+
+    return {
+        "type": "chart",
+        "chart_type": "line",
+        "title": f"Yearly Trend — {_station_name(station_id)}",
+        "data": {"labels": labels, "series": series},
         "text": text,
     }
 
@@ -482,6 +536,13 @@ QUERY_REGISTRY = {
     "yearly_totals": {
         "function": yearly_totals,
         "description": "Yearly rainfall totals for a station across all years",
+        "params": {
+            "station_id": {"type": "str", "required": True},
+        },
+    },
+    "yearly_trend": {
+        "function": yearly_trend,
+        "description": "Yearly totals plus a linear trend line for one station across all years",
         "params": {
             "station_id": {"type": "str", "required": True},
         },
