@@ -424,6 +424,34 @@ def year_comparison(station_id: str, year_a: int, year_b: int) -> dict:
     }
 
 
+def station_ranking(year: int, n: int = 20) -> dict:
+    """Rank all stations by total rainfall for a given year."""
+    n = max(1, min(int(n), 100))
+    totals = _cross_station_yearly_totals(year)
+    ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:n]
+
+    rows = [
+        [rank, _station_name(sid), round(total, 1)]
+        for rank, (sid, total) in enumerate(ranked, start=1)
+    ]
+
+    if rows:
+        text = (
+            f"Rainiest in {year}: {rows[0][1]} ({rows[0][2]} mm) "
+            f"across {len(totals)} stations with data."
+        )
+    else:
+        text = f"No stations have data for {year}."
+
+    return {
+        "type": "table",
+        "title": f"Station Ranking — {year}",
+        "columns": ["Rank", "Station", "Total (mm)"],
+        "rows": rows,
+        "text": text,
+    }
+
+
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
     df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
@@ -633,6 +661,14 @@ QUERY_REGISTRY = {
             "station_id": {"type": "str", "required": True},
             "year_a": {"type": "int", "required": True},
             "year_b": {"type": "int", "required": True},
+        },
+    },
+    "station_ranking": {
+        "function": station_ranking,
+        "description": "Rank all stations by total rainfall for a given year",
+        "params": {
+            "year": {"type": "int", "required": True},
+            "n": {"type": "int", "required": False, "default": 20},
         },
     },
 }
