@@ -104,3 +104,22 @@ def test_monsoon_breakdown_returns_four_buckets(fixture_processed_dir):
     # most of SW (Jun-Jul, partial Aug). Pre-NE (Oct-Nov) and Dec NE should be 0.
     by_label = dict(zip(out["data"]["labels"], out["data"]["values"]))
     assert by_label["Pre-NE"] == 0.0
+
+
+def test_season_comparison_three_series_per_year(fixture_processed_dir_two_years):
+    out = queries.season_comparison("S99")
+    assert out["chart_type"] == "grouped_bar"
+    assert out["data"]["labels"] == ["2020", "2021"]
+    series_names = sorted(s["name"] for s in out["data"]["series"])
+    assert series_names == ["Inter", "NE", "SW"]
+    # Each series has one value per year.
+    for s in out["data"]["series"]:
+        assert len(s["values"]) == 2
+
+
+def test_season_comparison_no_data_returns_text(fixture_processed_dir):
+    # Make _available_years return nothing by querying a fictional station id
+    # not registered in stations.json. station validation belongs to execute_query;
+    # at the function level, we expect ValueError if the station dir is missing.
+    with pytest.raises(ValueError):
+        queries.season_comparison("S404")

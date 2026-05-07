@@ -513,6 +513,46 @@ def monsoon_breakdown(station_id: str, year: int) -> dict:
     }
 
 
+def season_comparison(station_id: str) -> dict:
+    """Per-year totals per monsoon season (NE / SW / Inter) for one station, all years.
+
+    Inter combines Pre-SW + Pre-NE for chart readability (3 series, not 4).
+    """
+    years = _available_years(station_id)
+    if not years:
+        return {"type": "text", "title": "Season Comparison", "text": "No data."}
+
+    # Gather per (year, season) totals.
+    agg: dict[int, dict[str, float]] = {y: {"NE": 0.0, "SW": 0.0, "Inter": 0.0} for y in years}
+    for y in years:
+        df = _load_station(station_id, year=y)
+        if len(df) == 0:
+            continue
+        months = df["timestamp"].dt.month
+        labels = months.map(lambda m: _season_label(m))
+        # Collapse Pre-SW + Pre-NE into "Inter" for this view.
+        labels = labels.replace({"Pre-SW": "Inter", "Pre-NE": "Inter"})
+        sums = df.groupby(labels)["reading_value"].sum()
+        for season in ("NE", "SW", "Inter"):
+            agg[y][season] = round(float(sums.get(season, 0.0)), 1)
+
+    sorted_years = sorted(years)
+    labels_out = [str(y) for y in sorted_years]
+    series = [
+        {"name": "NE",    "values": [agg[y]["NE"] for y in sorted_years]},
+        {"name": "SW",    "values": [agg[y]["SW"] for y in sorted_years]},
+        {"name": "Inter", "values": [agg[y]["Inter"] for y in sorted_years]},
+    ]
+
+    return {
+        "type": "chart",
+        "chart_type": "grouped_bar",
+        "title": f"Season Comparison — {_station_name(station_id)}",
+        "data": {"labels": labels_out, "series": series},
+        "text": f"Years: {', '.join(labels_out)}.",
+    }
+
+
 def longest_dry_spell(station_id: str, year: int | None = None) -> dict:
     df = _load_station(station_id, year=year)
     daily = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
@@ -746,6 +786,13 @@ QUERY_REGISTRY = {
         "params": {
             "station_id": {"type": "str", "required": True},
             "year": {"type": "int", "required": True},
+        },
+    },
+    "season_comparison": {
+        "function": season_comparison,
+        "description": "Per-year monsoon season totals (NE, SW, Inter-monsoon) for one station across all years",
+        "params": {
+            "station_id": {"type": "str", "required": True},
         },
     },
 }
