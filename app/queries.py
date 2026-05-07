@@ -94,6 +94,37 @@ def _cross_station_yearly_totals(year: int) -> dict[str, float]:
     return out
 
 
+@lru_cache(maxsize=32)
+def _regional_series(year: int | None, mode: str) -> pd.Series:
+    """Cross-station mean rainfall for the given year (or all years).
+
+    `mode` is 'monthly' (resample daily totals to month-start sums) or 'daily'
+    (raw daily totals). Returns a Series indexed by timestamp; mean is taken
+    across stations for each timestamp.
+    """
+    if mode not in ("monthly", "daily"):
+        raise ValueError(f"mode must be 'monthly' or 'daily', got {mode!r}")
+
+    per_station: list[pd.Series] = []
+    for sid in _all_station_ids():
+        try:
+            df = _load_station(sid, year=year)
+        except ValueError:
+            continue
+        if len(df) == 0:
+            continue
+        s = df.groupby(df["timestamp"].dt.normalize())["reading_value"].sum()
+        if mode == "monthly":
+            s = s.resample("MS").sum()
+        per_station.append(s)
+
+    if not per_station:
+        return pd.Series([], dtype="float64")
+
+    aligned = pd.concat(per_station, axis=1)
+    return aligned.mean(axis=1)
+
+
 def _station_name(station_id: str) -> str:
     return _load_stations_index().get(station_id, station_id)
 

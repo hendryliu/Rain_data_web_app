@@ -46,3 +46,27 @@ def test_cross_station_yearly_totals_skips_missing_year(fixture_processed_dir_mu
     # Neither station has 2019 — result should be empty (not raise).
     totals = queries._cross_station_yearly_totals(2019)
     assert totals == {}
+
+
+def test_regional_series_monthly_year_scoped(fixture_processed_dir_multi_station):
+    queries._regional_series.cache_clear()
+    s = queries._regional_series(2020, "monthly")
+    # FIXTURE_DAYS=200 starting Jan 1 → ~7 months. Mean across S99 (1.0/reading)
+    # and S88 (2.0/reading) per day = 1.5 mm/reading × 288 readings/day → 432 mm/day
+    # → monthly sum is per-month-day-count × 432, then averaged across the 2 stations.
+    assert len(s) >= 6
+    assert (s > 0).all()
+
+
+def test_regional_series_rejects_invalid_mode(fixture_processed_dir_multi_station):
+    queries._regional_series.cache_clear()
+    with pytest.raises(ValueError):
+        queries._regional_series(2020, "weekly")
+
+
+def test_regional_series_uses_mean_not_sum(fixture_processed_dir_multi_station):
+    """Mean of (1.0/reading) and (2.0/reading) sources should be 1.5/reading."""
+    queries._regional_series.cache_clear()
+    s_daily = queries._regional_series(2020, "daily")
+    # 288 readings/day × 1.5 mean = 432 mm/day expected for any covered day.
+    assert abs(s_daily.iloc[0] - 432.0) < 1.0
