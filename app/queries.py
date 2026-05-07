@@ -226,6 +226,20 @@ def raw_series(station_id: str) -> pd.Series:
     return df["reading_value"]
 
 
+def _linear_fit(xs: list[int], ys: list[float]) -> tuple[float, float]:
+    """Least-squares slope and intercept for ys = slope*xs + intercept."""
+    n = len(xs)
+    if n == 0:
+        return 0.0, 0.0
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    den = sum((x - mean_x) ** 2 for x in xs)
+    slope = num / den if den else 0.0
+    intercept = mean_y - slope * mean_x
+    return slope, intercept
+
+
 def monthly_totals(station_id: str, year: int) -> dict:
     df = _load_station(station_id, year=year)
     monthly = df.groupby(df["timestamp"].dt.month)["reading_value"].sum()
@@ -241,20 +255,6 @@ def monthly_totals(station_id: str, year: int) -> dict:
 
 
 PARTIAL_YEAR_DAYS = 300  # fewer recorded days than this → treat as partial
-
-
-def _linear_fit(xs: list[int], ys: list[float]) -> tuple[float, float]:
-    """Least-squares slope and intercept for ys = slope*xs + intercept."""
-    n = len(xs)
-    if n == 0:
-        return 0.0, 0.0
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    den = sum((x - mean_x) ** 2 for x in xs)
-    slope = num / den if den else 0.0
-    intercept = mean_y - slope * mean_x
-    return slope, intercept
 
 
 def yearly_totals(station_id: str) -> dict:
