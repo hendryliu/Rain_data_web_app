@@ -42,6 +42,28 @@ def get_stations():
         return json.load(f)
 
 
+@app.get("/api/years")
+def get_years():
+    """Return the sorted union of years across all stations."""
+    rainfall_dir = os.path.join(PROCESSED_DIR, "rainfall")
+    if not os.path.isdir(rainfall_dir):
+        return []
+    years: set[int] = set()
+    for sid in os.listdir(rainfall_dir):
+        station_dir = os.path.join(rainfall_dir, sid)
+        if not os.path.isdir(station_dir):
+            continue
+        for fname in os.listdir(station_dir):
+            if not fname.endswith(".parquet"):
+                continue
+            stem = fname[: -len(".parquet")]
+            try:
+                years.add(int(stem))
+            except ValueError:
+                continue
+    return sorted(years)
+
+
 @app.get("/api/rainfall/{station_id}")
 def get_rainfall(
     station_id: str,
