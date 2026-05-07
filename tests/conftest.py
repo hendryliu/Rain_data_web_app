@@ -19,16 +19,19 @@ FIXTURE_STATION_ID = "S99"
 FIXTURE_STATION_NAME = "Synthetic Test Station"
 DEFAULT_YEAR = 2020
 EXTRA_YEAR = 2021
+EXTRA_STATION_ID = "S88"
+EXTRA_STATION_NAME = "Wettest Test Station"
+EXTRA_STATION_VALUE = 2.0  # readings here are 2.0 mm so totals exceed S99
 
 
-def _write_year(year_path, year, days):
-    """Write one year's parquet with `days` of 5-minute readings at 1.0 mm each."""
+def _write_year(year_path, year, days, value: float = 1.0):
+    """Write one year's parquet with `days` of 5-minute readings at `value` mm each."""
     periods = days * 24 * 12
     start = pd.Timestamp(f"{year}-01-01 00:00:00")
     timestamps = pd.date_range(start, periods=periods, freq="5min", tz="Asia/Singapore")
     df = pd.DataFrame({
         "timestamp": timestamps,
-        "reading_value": pd.Series([1.0] * periods, dtype="float32"),
+        "reading_value": pd.Series([value] * periods, dtype="float32"),
     })
     df.to_parquet(year_path, index=False)
 
@@ -76,6 +79,35 @@ def fixture_processed_dir_two_years(fixture_processed_dir):
     queries._load_station.cache_clear()
 
     return fixture_processed_dir
+
+
+@pytest.fixture
+def fixture_processed_dir_multi_station(fixture_processed_dir_two_years):
+    """fixture_processed_dir_two_years plus station S88 with 2020 and 2021 at 2.0 mm.
+
+    S88 totals are 2x S99's, which lets us test rankings deterministically.
+    """
+    rainfall = fixture_processed_dir_two_years / "rainfall"
+    extra_dir = rainfall / EXTRA_STATION_ID
+    extra_dir.mkdir(parents=True)
+    _write_year(extra_dir / f"{DEFAULT_YEAR}.parquet", DEFAULT_YEAR, FIXTURE_DAYS, value=EXTRA_STATION_VALUE)
+    _write_year(extra_dir / f"{EXTRA_YEAR}.parquet", EXTRA_YEAR, FIXTURE_DAYS, value=EXTRA_STATION_VALUE)
+
+    stations_path = fixture_processed_dir_two_years / "stations.json"
+    stations = json.loads(stations_path.read_text())
+    stations.append({
+        "id": EXTRA_STATION_ID,
+        "name": EXTRA_STATION_NAME,
+        "lng": 103.85,
+        "lat": 1.30,
+    })
+    stations_path.write_text(json.dumps(stations))
+
+    from app import queries
+    queries._load_station.cache_clear()
+    queries._load_stations_index.cache_clear()
+
+    return fixture_processed_dir_two_years
 
 
 @pytest.fixture
