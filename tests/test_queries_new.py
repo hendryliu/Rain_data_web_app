@@ -49,11 +49,13 @@ def test_station_ranking_orders_by_total_desc(fixture_processed_dir_multi_statio
     queries._cross_station_yearly_totals.cache_clear()
     out = queries.station_ranking(year=2020, n=10)
     assert out["type"] == "table"
-    assert out["columns"] == ["Rank", "Station", "Total (mm)"]
+    assert out["columns"] == ["Rank", "Station", "ID", "Total (mm)"]
     rows = out["rows"]
     # S88 (2.0 mm/reading) ranks above S99 (1.0 mm/reading).
     assert rows[0][1] == "Wettest Test Station"
+    assert rows[0][2] == "S88"
     assert rows[1][1] == "Synthetic Test Station"
+    assert rows[1][2] == "S99"
 
 
 def test_station_ranking_skips_stations_missing_year(fixture_processed_dir_multi_station):
@@ -67,6 +69,7 @@ def test_station_ranking_respects_n(fixture_processed_dir_multi_station):
     out = queries.station_ranking(year=2020, n=1)
     assert len(out["rows"]) == 1
     assert out["rows"][0][1] == "Wettest Test Station"
+    assert out["rows"][0][2] == "S88"
 
 
 def test_regional_total_year_scoped_monthly(fixture_processed_dir_multi_station):

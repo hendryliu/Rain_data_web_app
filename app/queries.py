@@ -431,14 +431,15 @@ def station_ranking(year: int, n: int = 20) -> dict:
     ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:n]
 
     rows = [
-        [rank, _station_name(sid), round(total, 1)]
+        [rank, _station_name(sid), sid, round(total, 1)]
         for rank, (sid, total) in enumerate(ranked, start=1)
     ]
 
     if rows:
+        top_sid = ranked[0][0]
         text = (
-            f"Rainiest in {year}: {rows[0][1]} ({rows[0][2]} mm) "
-            f"across {len(totals)} stations with data."
+            f"Rainiest in {year}: {_station_name(top_sid)} ({top_sid}) "
+            f"with {rows[0][3]} mm, across {len(totals)} stations with data."
         )
     else:
         text = f"No stations have data for {year}."
@@ -446,7 +447,7 @@ def station_ranking(year: int, n: int = 20) -> dict:
     return {
         "type": "table",
         "title": f"Station Ranking — {year}",
-        "columns": ["Rank", "Station", "Total (mm)"],
+        "columns": ["Rank", "Station", "ID", "Total (mm)"],
         "rows": rows,
         "text": text,
     }
