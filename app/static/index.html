@@ -914,6 +914,8 @@ function sendFreeform() {
       loadingDiv.remove();
       if (data.result) {
         renderResult(data.result);
+        // The LLM second-pass answer (if any) follows the result card.
+        if (data.content) addMessage('assistant', data.content);
       } else {
         addMessage('assistant', data.content || 'I could not process that query.');
       }

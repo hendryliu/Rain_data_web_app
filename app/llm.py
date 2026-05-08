@@ -66,6 +66,69 @@ User: "compare with Upper Changi"
 → {{"query":"compare_stations","params":{{"station_id_1":"S06","station_id_2":"S24"}},"explanation":"Monthly comparison against Upper Changi Road North."}}"""
 
 
+def _result_summary(result: dict) -> str:
+    """Compact textual representation of a query result for LLM consumption."""
+    title = result.get("title", "")
+    note = result.get("text", "")
+    if result.get("type") == "table":
+        cols = " | ".join(result["columns"])
+        rows = "\n".join(" | ".join(str(c) for c in row) for row in result["rows"])
+        return f"Title: {title}\n{cols}\n{rows}\nNote: {note}"
+    if result.get("type") == "chart":
+        data = result.get("data", {})
+        if "values" in data:
+            pairs = list(zip(data.get("labels", []), data.get("values", [])))
+            body = "\n".join(f"{lab}: {v}" for lab, v in pairs)
+        else:
+            body = json.dumps(data, separators=(",", ":"))
+        return f"Title: {title}\n{body}\nNote: {note}"
+    return f"{title}\n{note}"
+
+
+async def summarize_result(
+    message: str, query_id: str, params: dict, result: dict
+) -> str | None:
+    """Second-pass LLM call: write a one-sentence direct answer using actual data.
+
+    Returns None if the call fails — caller falls back to other text fields.
+    """
+    summary = _result_summary(result)
+
+    system = (
+        "You are answering a rainfall data question. The query has already run "
+        "and the result is provided. Reply with EXACTLY ONE concise sentence that "
+        "directly answers the user's question, using the actual data. When "
+        "naming a station, write it as \"Name (ID)\", e.g. \"Pasir Panjang (S203)\". "
+        "Do not output JSON. Do not restate the question. No preamble."
+    )
+    user = (
+        f"Question: {message}\n\n"
+        f"Query: {query_id}({params})\n\n"
+        f"Result:\n{summary}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{LLAMA_CPP_URL}/v1/chat/completions",
+                json={
+                    "model": LLAMA_CPP_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 120,
+                },
+            )
+            response.raise_for_status()
+        data = response.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        return text or None
+    except Exception:
+        return None
+
+
 async def query_llm(message: str, context: dict | None = None) -> dict:
     """Send a message to llama.cpp and parse the structured response."""
     system_prompt = _build_system_prompt(context)

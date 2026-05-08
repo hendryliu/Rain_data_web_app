@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .llm import query_llm
+from .llm import query_llm, summarize_result
 from .queries import (
     QUERY_REGISTRY,
     _load_station,
@@ -150,7 +150,13 @@ async def chat(req: ChatRequest):
             result = execute_query(llm_result["query"], llm_result["params"])
             result["_query_id"] = llm_result["query"]
             result["_params"] = llm_result["params"]
-            content = llm_result.get("explanation", result.get("text", ""))
+            # Second pass: have the LLM write a direct one-sentence answer
+            # using the actual result. Falls back to its first-pass explanation
+            # (or the result's own text) if the second call fails.
+            direct = await summarize_result(
+                req.message, llm_result["query"], llm_result["params"], result
+            )
+            content = direct or llm_result.get("explanation", "") or result.get("text", "")
             return {"role": "assistant", "content": content, "result": result}
         except ValueError as e:
             # Validation errors (unknown station, bad year, etc.) are safe to surface
